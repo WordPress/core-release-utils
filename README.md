@@ -16,4 +16,4 @@ Open a pull request against `trunk`.
 
 ## License
 
-Licensing is per tool, not repo-wide. Check each tool's directory for the license that covers it. A tool can be GPL, MIT, BSD, or another free software license, whichever fits it best. `wp-profile-link-generator/` is MIT.
+Licensing is per tool. Check each tool's directory for the license that covers it.
