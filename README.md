@@ -1,14 +1,10 @@
 # Core release utils
 
-Utilities and helpers for WordPress core releases. These are the small tools release coordinators and committers reach for when shipping a release: generating credits, preparing posts, and similar chores.
+Tools and helper files for improving WordPress core releases. These are the utilities release coordinators and committers reach for when shipping a release: generating credits and "Props", preparing blog posts and documentation, and other chores.
 
 ## Scope
 
-This repo holds release tooling that is not tied to a security embargo. Anything that must stay private until a release ships does not belong here.
-
-## Layout
-
-Each tool lives in its own top-level directory. There is no shared `tools/` root. Every tool directory has its own README with setup and usage.
+This repo holds core WordPress release tooling that is not tied to a security embargo. Anything private should be saved elsewhere.
 
 ## Tools
 
