@@ -16,4 +16,4 @@ Open a pull request against `trunk`.
 
 ## License
 
-GPLv2 or later. See [LICENSE](LICENSE).
+This repo is licensed just like WordPress, as free software, and is released under the terms of the GNU General Public License version 2 or (at your option) any later version. See [LICENSE](LICENSE) for the complete license.
