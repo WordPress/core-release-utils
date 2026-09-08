@@ -32,7 +32,7 @@ declare(strict_types=1);
  *   - Match /tags/<T>@<rev> and ignore the host. Tags up to 3.3.2 use svn.automattic.com.
  *   - Send a User-Agent. core.svn answers 403 without one.
  *
- * Needs PHP 8.1 with SimpleXML and git 2.20+. Tests: php tools/tests/verify-tags-reached-mirror-tests.php
+ * Needs PHP 8.1 with SimpleXML and git 2.20+. Tests: php tests/verify-tags-reached-mirror-tests.php
  */
 
 const DEFAULT_SVN  = 'https://core.svn.wordpress.org/tags/';
