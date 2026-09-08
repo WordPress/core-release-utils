@@ -9,6 +9,7 @@ This repo holds core WordPress release tooling that is not tied to a security em
 ## Tools
 
 - `wp-profile-link-generator/`: takes a list of WordPress.org usernames and produces the linked contributor list for a minor release post, plus the updated credits array for the credits API.
+- `tools/verify-tags-reached-mirror.php`: checks that release tags on `core.svn` reached the `WordPress/WordPress` Git mirror. `--tags` polls for a release's tags as a gate; `--audit` checks every tag once.
 
 ## Contributing
 
