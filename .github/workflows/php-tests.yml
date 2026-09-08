@@ -1,0 +1,39 @@
+name: PHP tests
+
+on:
+  push:
+    branches:
+      - trunk
+    paths:
+      - '**.php'
+      - '.github/workflows/php-tests.yml'
+  pull_request:
+    paths:
+      - '**.php'
+      - '.github/workflows/php-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        php: ['8.1', '8.5']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+      - name: Run every *-tests.php
+        run: |
+          set -e
+          find . -name '*-tests.php' -not -path '*/node_modules/*' -print0 | sort -z | while IFS= read -r -d '' test; do
+            echo "== $test"
+            php -d allow_url_fopen=0 \
+              -d disable_functions=exec,passthru,shell_exec,system,proc_open,popen,pcntl_exec,curl_exec,curl_multi_exec,fsockopen,pfsockopen,stream_socket_client,stream_socket_server,socket_connect \
+              "$test"
+          done
