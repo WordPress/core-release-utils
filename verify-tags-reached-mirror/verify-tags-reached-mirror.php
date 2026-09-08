@@ -457,7 +457,9 @@ function main(array $argv): int {
 	}
 	// Stream warnings become exceptions so a refused connection is retried by
 	// the gate instead of printed between report lines.
-	set_error_handler(static fn(int $severity, string $message): never => throw new RuntimeException($message), E_WARNING);
+	set_error_handler(static function (int $severity, string $message): never {
+		throw new RuntimeException($message);
+	}, E_WARNING);
 
 	echo($audit ? 'Tag mirror audit: ' : 'Tag mirror gate: ') . "{$svn_url} vs " . preg_replace('#//[^@/]+@#', '//', $repo_url) . "\n" . RULE;
 	printf(ROW, 'Tag', 'SVN', 'Mirror', 'Verdict', 'Detail');
