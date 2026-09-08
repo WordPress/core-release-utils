@@ -1,0 +1,32 @@
+name: Shell tests
+
+on:
+  push:
+    branches:
+      - trunk
+    paths:
+      - '**.zsh'
+      - '.github/workflows/shell-tests.yml'
+  pull_request:
+    paths:
+      - '**.zsh'
+      - '.github/workflows/shell-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install zsh and subversion
+        run: sudo apt-get update -q && sudo apt-get install -y -q zsh subversion
+      - name: Run every *-tests.zsh
+        run: |
+          set -e
+          find . -name '*-tests.zsh' -not -path '*/node_modules/*' -print0 | sort -z | while IFS= read -r -d '' test; do
+            echo "== $test"
+            zsh "$test"
+          done
