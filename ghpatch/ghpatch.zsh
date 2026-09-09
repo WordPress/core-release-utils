@@ -47,7 +47,7 @@ function ghpatch() {
 	# than stdin, hence the temporary file.
 	echo "Applying $repository#$pr_number: $pr_title";
 	local patch_file;
-	patch_file=$(mktemp -t ghpatch) || return 1;
+	patch_file=$(mktemp "${TMPDIR:-/tmp}/ghpatch.XXXXXX") || return 1;
 	if ! gh pr diff $pr_number --repo=$repository > $patch_file; then
 		echo "🤦‍♂️ Could not read the diff for $repository#$pr_number";
 		rm -f $patch_file;

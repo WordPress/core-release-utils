@@ -61,7 +61,9 @@ zsh ghpatch/tests/ghpatch-tests.zsh
 Vendored on 2026-07-26 from
 [Peter Wilson's gist](https://gist.github.com/peterwilsoncc/ceca0f962d9eb2416c09f89d695a19ad),
 with his permission, and modified since: it applies with `svn patch` instead
-of `patch -p1` and fails on a rejected hunk.
+of `patch -p1`, fails on a rejected hunk, and creates its temporary file with a
+`mktemp` template that GNU and BSD `mktemp` both accept, so it runs on Linux as
+well as macOS.
 
 ## License
 
