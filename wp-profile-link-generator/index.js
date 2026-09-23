@@ -32,7 +32,7 @@ for( const profile of data ) {
         // do nothing
     } else { 
 		try{
-			const baseUrl = 'https://w.org/@';
+			const baseUrl = 'https://profiles.wordpress.org/';
 			// get the profile page, urlendcode the profile name
 			const url = baseUrl + encodeURIComponent( profile );
 			// fetch url using axios and throw an error if it is not a 200
