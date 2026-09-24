@@ -225,6 +225,16 @@ A mismatch this tool finds is fixed by a human: push-helphub-drafts.php's
 deliberately left out of this tool until bullets can be located by exact
 source span rather than a positional or search-string lookup.
 
+Add `--news-post=<URL or file>` to check reporter names and GHSA IDs in a news
+post against the required `--release` and `--manifest`. Supply an HTML/plain-text
+file or an `https://wordpress.org/news/...` URL. This mode makes no HelpHub
+requests, needs no credentials, and refuses `--only` and `--user`. Reporters are
+searched only within the security section; a missing section makes every
+reporter MISSING. GHSA IDs are searched across the whole post. Exit codes match
+HelpHub mode: findings and manifest/validation errors exit 2; usage and runtime
+read failures exit 1. Within a security section, credits without “reported by”
+are UNCHECKED; null advisories are skipped. Neither fails the check.
+
 ## Checking HelpHub version pages
 
 Every release gets a "WordPress Version" page on wordpress.org, created by

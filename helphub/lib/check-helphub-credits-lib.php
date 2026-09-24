@@ -228,3 +228,156 @@ function helphub_credits_wave_stray(array $pages, array $wave, string $line, ?st
 
 	return null;
 }
+
+function helphub_credits_news_option_error(array $options, ?array $manifest = null): ?array {
+	foreach (array('release', 'manifest') as $required) {
+		if (!isset($options[$required]) || !is_string($options[$required]) || '' === $options[$required]) {
+			return array('message' => null, 'code' => 1);
+		}
+	}
+	if (array_key_exists('news-post', $options)) {
+		foreach (array('only', 'user') as $incompatible) {
+			if (array_key_exists($incompatible, $options)) {
+				return array('message' => "--news-post cannot be used with --{$incompatible}.", 'code' => 1);
+			}
+		}
+		if (!is_string($options['news-post']) || '' === $options['news-post']) {
+			return array('message' => '--news-post requires a URL or file path.', 'code' => 1);
+		}
+	}
+	if (null !== $manifest && $manifest['release'] !== $options['release']) {
+		return array(
+			'message' => "Manifest declares release {$manifest['release']}, but --release says {$options['release']}. "
+				. 'Checking one release against another release\'s manifest would compare the wrong fixes.',
+			'code' => 2,
+		);
+	}
+
+	return null;
+}
+
+function helphub_credits_error_code(Throwable $error): int {
+	return $error instanceof InvalidArgumentException ? 2 : 1;
+}
+
+function helphub_credits_read_news(string $source): string {
+	$parts = parse_url($source);
+	if (false === $parts || isset($parts['scheme']) || isset($parts['host'])) {
+		if (false === $parts || 'https' !== strtolower($parts['scheme'] ?? '')
+			|| 'wordpress.org' !== strtolower($parts['host'] ?? '')
+			|| !str_starts_with($parts['path'] ?? '', '/news/')
+			|| isset($parts['user']) || isset($parts['pass'])
+			|| (isset($parts['port']) && 443 !== $parts['port'])) {
+			throw new InvalidArgumentException('--news-post URL must be https://wordpress.org/news/...');
+		}
+		$response = helphub_http_request($source);
+		if (200 !== $response['code']) {
+			throw new RuntimeException("News post request failed (HTTP {$response['code']}).");
+		}
+		return $response['raw'];
+	}
+
+	$text = is_file($source) ? @file_get_contents($source) : false;
+	if (false === $text) {
+		throw new RuntimeException("Unable to read news post: {$source}");
+	}
+	return $text;
+}
+
+function helphub_credits_news_security_section(string $post): ?string {
+	if ($post !== strip_tags($post)) {
+		$document = new DOMDocument();
+		$previous = libxml_use_internal_errors(true);
+		try {
+			$document->loadHTML('<?xml encoding="UTF-8">' . $post, LIBXML_NONET);
+		} finally {
+			libxml_clear_errors();
+			libxml_use_internal_errors($previous);
+		}
+		$xpath = new DOMXPath($document);
+		$body  = $xpath->query('//*[contains(concat(" ", normalize-space(@class), " "), " entry-content ")]')->item(0)
+			?? $document->getElementsByTagName('article')->item(0);
+		if (null !== $body) {
+			$post = $document->saveHTML($body);
+		}
+	}
+	preg_match_all('~<h([1-6])\b[^>]*>(.*?)</h\1\s*>~is', $post, $headings, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
+	$start = null;
+	foreach ($headings as $heading) {
+		if (null !== $start) {
+			return helphub_credits_normalize_line(substr($post, $start, $heading[0][1] - $start));
+		}
+		if (null === $start && 1 === preg_match('/\ASecurity updates? included in this release\z/i', helphub_credits_normalize_line($heading[2][0]))) {
+			$start = $heading[0][1] + strlen($heading[0][0]);
+		}
+	}
+	if (null !== $start) {
+		return helphub_credits_normalize_line(substr($post, $start));
+	}
+	if ($post !== strip_tags($post)) {
+		return null;
+	}
+
+	$lines = null;
+	foreach (preg_split('/\R/', $post) as $line) {
+		$line = helphub_credits_normalize_line($line);
+		$heading = preg_replace('/[\p{P}\s]+$/u', '', ltrim($line, '# '));
+		if (null === $lines) {
+			if (1 === preg_match('/\A(?=.{1,60}\z)Security updates?\b/iu', $heading)) {
+				$lines = array();
+			}
+			continue;
+		}
+		if (str_starts_with($line, '#') || in_array(strtolower($heading), array('thank you to these wordpress contributors', 'cve and ghsa references', 'backports', 'how to contribute'), true)) {
+			break;
+		}
+		$lines[] = $line;
+	}
+
+	return null === $lines ? null : helphub_credits_normalize_line(implode(' ', $lines));
+}
+
+function helphub_credits_check_news(array $manifest, string $post): int {
+	$text     = helphub_credits_normalize_line($post);
+	$security = helphub_credits_news_security_section($post);
+	$counts = array('PASS' => 0, 'MISSING' => 0, 'UNCHECKED' => 0, 'SKIPPED' => 0);
+	$rows   = array();
+	foreach ($manifest['credits'] as $number => $credit) {
+		if (null === $security) {
+			$rows[] = array($number, 'reporter', 'MISSING', 'security section not found');
+			continue;
+		}
+		$credit = helphub_credits_normalize_line($credit);
+		$offset = strripos($credit, ' reported by ');
+		if (false === $offset) {
+			$rows[] = array($number, 'reporter', 'UNCHECKED', 'credit has no "reported by"');
+			continue;
+		}
+		$reporter = rtrim(trim(substr($credit, $offset + strlen(' reported by '))), '.');
+		if ('' === $reporter) {
+			$rows[] = array($number, 'reporter', 'UNCHECKED', 'credit has no reporter after "reported by"');
+			continue;
+		}
+		$found = 1 === preg_match('/(?<![\p{L}\p{N}])' . preg_quote($reporter, '/') . '(?![\p{L}\p{N}])/iu', $security);
+		if (!$found) {
+			$short = preg_split('/ \(| of /i', $reporter, 2)[0];
+			$found = '' !== $short && 1 === preg_match('/(?<![\p{L}\p{N}])' . preg_quote($short, '/') . '(?![\p{L}\p{N}])/iu', $security);
+		}
+		$rows[] = array($number, 'reporter', $found ? 'PASS' : 'MISSING', $reporter);
+	}
+	foreach ($manifest['advisories'] as $number => $advisory) {
+		$rows[] = null === $advisory
+			? array($number, 'advisory', 'SKIPPED', 'no advisory in manifest; nothing to check')
+			: array($number, 'advisory', false !== stripos($text, $advisory) ? 'PASS' : 'MISSING', $advisory);
+	}
+
+	echo "News post credits for WordPress {$manifest['release']}\n";
+	foreach ($rows as [$number, $check, $status, $detail]) {
+		echo "  Fix #{$number} {$check}: {$status} ({$detail})\n";
+		$counts[$status]++;
+	}
+	printf("\n%d check(s): %d PASS, %d MISSING, %d UNCHECKED, %d SKIPPED.\n",
+		count($rows), $counts['PASS'], $counts['MISSING'], $counts['UNCHECKED'], $counts['SKIPPED']);
+
+	return $counts['MISSING'] ? 2 : 0;
+}
