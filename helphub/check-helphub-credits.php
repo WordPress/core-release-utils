@@ -13,13 +13,13 @@ require_once __DIR__ . '/lib/helphub-http-lib.php';
 require_once __DIR__ . '/lib/push-helphub-drafts-lib.php';
 require_once __DIR__ . '/lib/check-helphub-credits-lib.php';
 
-/** Compare a release's live HelpHub credit lines against the manifest's authored */
+/** Compare HelpHub credits or news-post reporters and advisories against the manifest. */
 
 function helphub_credits_usage(string $script): never {
 	fail(
 		"Usage: {$script} --release=<X.Y.Z> --manifest=<helphub-manifest-X.Y.Z.json> [--site=<url>] [--user=<login>] "
-		. '[--only=<X.Y.Z>] [--verbose] [--help]'
-		. "\n\nThe application password is read from the HELPHUB_APP_PASSWORD environment variable."
+		. '[--only=<X.Y.Z>] [--news-post=<URL or file>] [--verbose] [--help]'
+		. "\n\nHelpHub mode reads the application password from the HELPHUB_APP_PASSWORD environment variable."
 	);
 }
 
@@ -106,12 +106,12 @@ function helphub_credits_fetch_pages(string $site): array {
 }
 
 $options = cli_options($argv, array(
-	'release:', 'manifest:', 'site:', 'user:', 'only:', 'verbose', 'help',
+	'release:', 'manifest:', 'site:', 'user:', 'only:', 'news-post:', 'verbose', 'help',
 ));
 if (isset($options['help'])) {
 	echo "Usage: {$argv[0]} --release=<X.Y.Z> --manifest=<helphub-manifest-X.Y.Z.json> [--site=<url>] [--user=<login>] "
-		. "[--only=<X.Y.Z>] [--verbose] [--help]\n"
-		. "\nThe application password is read from the HELPHUB_APP_PASSWORD environment variable.\n";
+		. "[--only=<X.Y.Z>] [--news-post=<URL or file>] [--verbose] [--help]\n"
+		. "\nHelpHub mode reads the application password from the HELPHUB_APP_PASSWORD environment variable.\n";
 	exit(0);
 }
 set_verbose(isset($options['verbose']));
@@ -121,24 +121,20 @@ foreach (array('release', 'manifest') as $required) {
 	}
 }
 
-$user     = isset($options['user']) && is_string($options['user']) && '' !== $options['user'] ? $options['user'] : null;
-$password = getenv('HELPHUB_APP_PASSWORD');
-$password = is_string($password) ? trim($password) : '';
-if ((null !== $user) !== ('' !== $password)) {
-	fail(
-		'--user and HELPHUB_APP_PASSWORD must be given together, or not at all. '
-		. 'A partial credential cannot authenticate anything.',
-		2
-	);
+$news_post = array_key_exists('news-post', $options);
+if ($news_post) {
+	foreach (array('only', 'user') as $incompatible) {
+		if (array_key_exists($incompatible, $options)) {
+			fail("--news-post cannot be used with --{$incompatible}.");
+		}
+	}
+	if (!is_string($options['news-post']) || '' === $options['news-post']) {
+		fail('--news-post requires a URL or file path.');
+	}
 }
-$authed = null !== $user && '' !== $password;
-if ($authed) {
-	helphub_credits_auth(base64_encode($user . ':' . $password));
-}
-unset($password);
 
 try {
-	verbose_log('Starting HelpHub credit check');
+	verbose_log($news_post ? 'Starting news post credit check' : 'Starting HelpHub credit check');
 	$manifest_json = @file_get_contents($options['manifest']);
 	if (false === $manifest_json) {
 		throw new InvalidArgumentException("Unable to read manifest: {$options['manifest']}");
@@ -151,6 +147,26 @@ try {
 			2
 		);
 	}
+	if ($news_post) {
+		exit(helphub_credits_check_news($manifest, helphub_credits_read_news($options['news-post'])));
+	}
+
+	$user     = isset($options['user']) && is_string($options['user']) && '' !== $options['user'] ? $options['user'] : null;
+	$password = getenv('HELPHUB_APP_PASSWORD');
+	$password = is_string($password) ? trim($password) : '';
+	if ((null !== $user) !== ('' !== $password)) {
+		fail(
+			'--user and HELPHUB_APP_PASSWORD must be given together, or not at all. '
+			. 'A partial credential cannot authenticate anything.',
+			2
+		);
+	}
+	$authed = null !== $user && '' !== $password;
+	if ($authed) {
+		helphub_credits_auth(base64_encode($user . ':' . $password));
+	}
+	unset($password);
+
 	$site = helphub_require_https(isset($options['site']) && is_string($options['site']) ? $options['site'] : 'https://wordpress.org/documentation');
 	$only = isset($options['only']) && is_string($options['only']) ? $options['only'] : null;
 
