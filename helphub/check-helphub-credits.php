@@ -115,23 +115,14 @@ if (isset($options['help'])) {
 	exit(0);
 }
 set_verbose(isset($options['verbose']));
-foreach (array('release', 'manifest') as $required) {
-	if (!isset($options[$required]) || !is_string($options[$required]) || '' === $options[$required]) {
+$option_error = helphub_credits_news_option_error($options);
+if (null !== $option_error) {
+	if (null === $option_error['message']) {
 		helphub_credits_usage($argv[0]);
 	}
+	fail($option_error['message'], $option_error['code']);
 }
-
 $news_post = array_key_exists('news-post', $options);
-if ($news_post) {
-	foreach (array('only', 'user') as $incompatible) {
-		if (array_key_exists($incompatible, $options)) {
-			fail("--news-post cannot be used with --{$incompatible}.");
-		}
-	}
-	if (!is_string($options['news-post']) || '' === $options['news-post']) {
-		fail('--news-post requires a URL or file path.');
-	}
-}
 
 try {
 	verbose_log($news_post ? 'Starting news post credit check' : 'Starting HelpHub credit check');
@@ -140,12 +131,9 @@ try {
 		throw new InvalidArgumentException("Unable to read manifest: {$options['manifest']}");
 	}
 	$manifest = helphub_manifest_decode($manifest_json);
-	if ($manifest['release'] !== $options['release']) {
-		fail(
-			"Manifest declares release {$manifest['release']}, but --release says {$options['release']}. "
-			. 'Checking one release against another release\'s manifest would compare the wrong fixes.',
-			2
-		);
+	$option_error = helphub_credits_news_option_error($options, $manifest);
+	if (null !== $option_error) {
+		fail($option_error['message'], $option_error['code']);
 	}
 	if ($news_post) {
 		exit(helphub_credits_check_news($manifest, helphub_credits_read_news($options['news-post'])));
@@ -295,10 +283,10 @@ try {
 
 	exit($mismatch_count || $missing_count || $unreadable_count ? 2 : 0);
 } catch (InvalidArgumentException $exception) {
-	fail($exception->getMessage(), 2);
+	fail($exception->getMessage(), helphub_credits_error_code($exception));
 } catch (RuntimeException $exception) {
-	fail($exception->getMessage());
+	fail($exception->getMessage(), helphub_credits_error_code($exception));
 } catch (Throwable $exception) {
 	// Never reach PHP's own handler: its trace can print a credential held in this process.
-	fail('Unexpected ' . $exception::class . ': ' . $exception->getMessage());
+	fail('Unexpected ' . $exception::class . ': ' . $exception->getMessage(), helphub_credits_error_code($exception));
 }

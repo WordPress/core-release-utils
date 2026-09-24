@@ -229,6 +229,37 @@ function helphub_credits_wave_stray(array $pages, array $wave, string $line, ?st
 	return null;
 }
 
+function helphub_credits_news_option_error(array $options, ?array $manifest = null): ?array {
+	foreach (array('release', 'manifest') as $required) {
+		if (!isset($options[$required]) || !is_string($options[$required]) || '' === $options[$required]) {
+			return array('message' => null, 'code' => 1);
+		}
+	}
+	if (array_key_exists('news-post', $options)) {
+		foreach (array('only', 'user') as $incompatible) {
+			if (array_key_exists($incompatible, $options)) {
+				return array('message' => "--news-post cannot be used with --{$incompatible}.", 'code' => 1);
+			}
+		}
+		if (!is_string($options['news-post']) || '' === $options['news-post']) {
+			return array('message' => '--news-post requires a URL or file path.', 'code' => 1);
+		}
+	}
+	if (null !== $manifest && $manifest['release'] !== $options['release']) {
+		return array(
+			'message' => "Manifest declares release {$manifest['release']}, but --release says {$options['release']}. "
+				. 'Checking one release against another release\'s manifest would compare the wrong fixes.',
+			'code' => 2,
+		);
+	}
+
+	return null;
+}
+
+function helphub_credits_error_code(Throwable $error): int {
+	return $error instanceof InvalidArgumentException ? 2 : 1;
+}
+
 function helphub_credits_read_news(string $source): string {
 	$parts = parse_url($source);
 	if (false === $parts || isset($parts['scheme']) || isset($parts['host'])) {

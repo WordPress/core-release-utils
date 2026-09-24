@@ -389,7 +389,7 @@ HTTP reads and writes require `allow_url_fopen` on.
 php tests/helphub-tests.php
 ```
 
-Offline: no network or git. News-post CLI tests use temporary files and PHP subprocesses with URL reads disabled.
+Offline: no network, no git, no subprocesses, no disk fixtures.
 
 ## License
 

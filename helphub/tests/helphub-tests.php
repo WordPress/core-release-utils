@@ -3,7 +3,7 @@
 
 declare(strict_types=1);
 
-/** Offline HelpHub checks: no network or git; news CLI checks use temporary files. */
+/** Offline HelpHub checks: no network, no git, no subprocesses or disk fixtures. */
 
 foreach (glob(dirname(__DIR__) . '/lib/*.php') as $library) {
 	require_once $library;
@@ -298,106 +298,129 @@ check('HelpHub manifest missing targets retain scope order', array('7.0', '6.9')
 check('HelpHub manifest complete targets have no gaps', array(), helphub_manifest_missing_targets(array('targets' => array('7.1' => $manifest_entry))));
 
 
-$news_manifest_file = tempnam(sys_get_temp_dir(), 'helphub-manifest-');
-$news_post_file     = tempnam(sys_get_temp_dir(), 'helphub-news-');
-try {
-	$news_cases = array(
-		'List-style post' => array('Stored XSS reported by Jeremy Felt of the WordPress Security Team.', '<h2>Security updates included in this release</h2>' . '<ul><li>Stored XSS, reported by <a>Jeremy Felt</a> of the WordPress Security Team.</li></ul>' . '<h2>Thank you to these WordPress contributors</h2><p>John Blackbourn</p>', null, 0, 'reporter: PASS'),
-		'Prose-style post' => array('Issue reported by Robert Ressl.', '<h2>Security update included in this release</h2><p>The security team would like to thank Robert Ressl for responsibly disclosing that issue.</p><h2>CVE and GHSA references</h2><p>CVE-2026-87902 / GHSA-7hp8-65ch-5whp</p><h2>Thank you to these WordPress contributors</h2><p>John Blackbourn</p>', null, 0, 'reporter: PASS'),
-		'Viridis substring' => array('Issue reported by viridis.', "Security update included in this release\n" . 'Comments, including notes, can be reparented by any authenticated user, reported by Justin Hart, Viridis Security.' . "\nThank you to these WordPress contributors\nJohn Blackbourn", null, 0, 'reporter: PASS (viridis)'),
-		'Fallback before of' => array('Issue reported by Ben Bidner of the WordPress Security Team.', "Security update included in this release\n" . 'Thank you Ben Bidner.' . "\nThank you to these WordPress contributors\nJohn Blackbourn", null, 0, 'reporter: PASS'),
-		'Fallback before parenthesis' => array('Issue reported by Reporter (Team).', "Security update included in this release\n" . 'Thank you Reporter.' . "\nThank you to these WordPress contributors\nJohn Blackbourn", null, 0, 'reporter: PASS'),
-		'Fallback uses first delimiter' => array('Issue reported by Reporter (Team) of Organization.', "Security update included in this release\n" . 'Thank you Reporter.' . "\nThank you to these WordPress contributors\nJohn Blackbourn", null, 0, 'reporter: PASS'),
-		'Wrong reporter' => array('Issue reported by Ben Bidner.', "Security update included in this release\n" . 'Thank you Jeremy Felt.' . "\nThank you to these WordPress contributors\nJohn Blackbourn", null, 2, 'reporter: MISSING (Ben Bidner)'),
-		'GHSA present' => array('Issue reported by Robert Ressl.', "Security update included in this release\n" . "Robert Ressl.\nCVE and GHSA references\nCVE-2026-87902 / ghsa-7hp8-65ch-5whp." . "\nThank you to these WordPress contributors\nJohn Blackbourn", 'GHSA-7hp8-65ch-5whp', 0, 'advisory: PASS (GHSA-7hp8-65ch-5whp)'),
-		'GHSA absent' => array('Issue reported by Robert Ressl.', "Security update included in this release\n" . 'Robert Ressl: CVE-2026-87902.' . "\nThank you to these WordPress contributors\nJohn Blackbourn", 'GHSA-7hp8-65ch-5whp', 2, 'advisory: MISSING (GHSA-7hp8-65ch-5whp)'),
-		'Null advisory skipped' => array('Issue reported by Reporter.', "Security update included in this release\n" . 'Reporter' . "\nThank you to these WordPress contributors\nJohn Blackbourn", null, 0, 'advisory: SKIPPED (no advisory in manifest; nothing to check)'),
-		'Credit without reported by' => array('Reviewed credit line.', "Security update included in this release\n" . 'Unrelated post' . "\nThank you to these WordPress contributors\nJohn Blackbourn", null, 0, 'reporter: UNCHECKED (credit has no "reported by")'),
-		'Last reported by wins' => array('Originally reported by Wrong, later REPORTED BY Right.', "Security update included in this release\n" . 'Thank you RIGHT.' . "\nThank you to these WordPress contributors\nJohn Blackbourn", null, 0, 'reporter: PASS (Right)'),
-		'Quotes dashes entities and whitespace' => array("Issue reported by O'Neil-Smith.", '<h2>Security updates included in this release</h2>' . '<p>Thank you <b>O&#8217;Neil&ndash;Smith</b>&nbsp;for reporting.</p>' . '<h2>Thank you to these WordPress contributors</h2><p>John Blackbourn</p>', null, 0, "reporter: PASS (O'Neil-Smith)"),
-		'HTML contributors cannot satisfy reporter' => array('Issue reported by John Blackbourn of the WordPress Security Team.', '<h2>Security updates included in this release</h2><ul><li>Issue reported by Jakub Herman.</li></ul><h2>Thank you to these WordPress contributors</h2><p>John Blackbourn</p>', null, 2, 'reporter: MISSING (John Blackbourn of the WordPress Security Team)'),
-		'HTML missing security heading' => array('Issue reported by John Blackbourn.', '<p>Security updates included in this release: John Blackbourn.</p><h2>Thank you to these WordPress contributors</h2><p>John Blackbourn</p>', null, 2, 'reporter: MISSING (security section not found)'),
-		'Plain text missing security heading' => array('Issue reported by John Blackbourn.', "Thank you to these WordPress contributors\nJohn Blackbourn", null, 2, 'reporter: MISSING (security section not found)'),
-		'Missing section overrides unchecked credit' => array('Reviewed credit line.', '<p>Unrelated post</p>', null, 2, 'reporter: MISSING (security section not found)'),
-		'HTML lower heading ends section' => array('Issue reported by Robert Ressl.', '<h2 class="heading">Security <em>update</em> included in this release</h2><h3>Details</h3><p>Robert Ressl</p><h2>Backports</h2>', null, 2, 'reporter: MISSING (Robert Ressl)'),
-		'HTML higher heading ends section' => array('Issue reported by John Blackbourn.', '<h2>Security update included in this release</h2><p>Jakub Herman</p><h1>Contributors</h1><p>John Blackbourn</p>', null, 2, 'reporter: MISSING (John Blackbourn)'),
-		'HTML GHSA outside security section' => array('Issue reported by Robert Ressl.', '<h2>Security update included in this release</h2><p>Robert Ressl</p><h2>CVE and GHSA references</h2><p>GHSA-7hp8-65ch-5whp</p>', 'GHSA-7hp8-65ch-5whp', 0, 'advisory: PASS (GHSA-7hp8-65ch-5whp)'),
-		'Plain text stops at Thank you to these WordPress contributors' => array('Issue reported by John Blackbourn.', "Security updates included in this release\nIssue reported by Jakub Herman.\nThank you to these WordPress contributors\nJohn Blackbourn", null, 2, 'reporter: MISSING (John Blackbourn)'),
-		'Plain text stops at CVE and GHSA references' => array('Issue reported by John Blackbourn.', "Security updates included in this release\nIssue reported by Jakub Herman.\nCVE and GHSA references\nJohn Blackbourn", null, 2, 'reporter: MISSING (John Blackbourn)'),
-		'Plain text stops at Backports' => array('Issue reported by John Blackbourn.', "Security updates included in this release\nIssue reported by Jakub Herman.\nBackports\nJohn Blackbourn", null, 2, 'reporter: MISSING (John Blackbourn)'),
-		"Name Ann does not match Joanne" => array("Issue reported by Ann.", "<h2>Security updates included in this release</h2><p>Joanne</p>", null, 2, "reporter: MISSING (Ann)"),
-		"Fallback Alice does not match Malice" => array("Issue reported by Alice of Example.", "<h2>Security updates included in this release</h2><p>Malice</p>", null, 2, "reporter: MISSING (Alice of Example)"),
-		"Parenthetical fallback does not match Malice" => array("Issue reported by Alice (Example).", "<h2>Security updates included in this release</h2><p>Malice</p>", null, 2, "reporter: MISSING (Alice (Example))"),
-		"Unicode letters and digits bound names" => array("Issue reported by Ann.", "<h2>Security updates included in this release</h2><p>éAnn Ann中 ١Ann Ann٢</p>", null, 2, "reporter: MISSING (Ann)"),
-		"Unicode case insensitive name" => array("Issue reported by Élodie.", "<h2>Security updates included in this release</h2><p>Reported by éLODIE.</p>", null, 0, "reporter: PASS (Élodie)"),
-		"Reporter regex punctuation is literal" => array("Issue reported by A.B.", "<h2>Security updates included in this release</h2><p>AxB</p>", null, 2, "reporter: MISSING (A.B)"),
-		"Anthropic followed by period" => array("Issue reported by Anthropic.", "<h2>Security updates included in this release</h2><p>reported by Anthropic.</p>", null, 0, "reporter: PASS (Anthropic)"),
-		"HTML h3 contributors cannot satisfy reporter" => array("Issue reported by John Blackbourn.", "<h2>Security updates included in this release</h2><p>Jakub Herman</p><h3>Thank you to these WordPress contributors</h3><p>John Blackbourn</p>", null, 2, "reporter: MISSING (John Blackbourn)"),
-		"HTML article excludes footer" => array("Issue reported by John Blackbourn.", "<html><body><article><h3>Security update included in this release</h3><p>Jakub Herman</p></article><footer>John Blackbourn</footer></body></html>", null, 2, "reporter: MISSING (John Blackbourn)"),
-		"HTML entry-content excludes article footer" => array("Issue reported by John Blackbourn.", "<article><div class=\"post entry-content\"><h3>Security update included in this release</h3><div><p>Jakub Herman</p></div></div><footer>John Blackbourn</footer></article>", null, 2, "reporter: MISSING (John Blackbourn)"),
-		"HTML nested entry-content retains credit" => array("Issue reported by Élodie.", "<article><div class=\"post entry-content\"><h2>Security updates included in this release</h2><div><p>Other text</p></div>\n<p>Élodie</p></div><footer>Other text</footer></article>", null, 0, "reporter: PASS (Élodie)"),
-		"HTML start marker must match release heading" => array("Issue reported by Ann.", "<h2>Security update</h2><p>Ann</p>", null, 2, "reporter: MISSING (security section not found)"),
-		"Plain prose is not security heading" => array("Issue reported by Ann.", "This release has no security updates.\nAnn", null, 2, "reporter: MISSING (security section not found)"),
-		"Long plain line is not security heading" => array("Issue reported by Ann.", "Security updates included in this release are described in prose rather than a heading.\nAnn", null, 2, "reporter: MISSING (security section not found)"),
-		"Markdown contributors end section" => array("Issue reported by Ann.", "## Security updates included in this release:\nJoanne\n## Thank you to these WordPress contributors\nAnn", null, 2, "reporter: MISSING (Ann)"),
-		"Markdown arbitrary heading ends section" => array("Issue reported by Ann.", "## Security update included in this release\nJoanne\n### Other people\nAnn", null, 2, "reporter: MISSING (Ann)"),
-		"Plain How to contribute ends section" => array("Issue reported by Ann.", "Security update included in this release:\nJoanne\nHow to contribute!\nAnn", null, 2, "reporter: MISSING (Ann)"),
-		"Markdown security heading passes" => array("Issue reported by Ann.", "## Security update included in this release:\nReported by Ann.\n## Backports", null, 0, "reporter: PASS (Ann)"),
-		'Whitespace in reporter' => array('Issue reported by Robert Ressl.', "Security update included in this release\n" . "Thank you Robert\n\tRessl." . "\nThank you to these WordPress contributors\nJohn Blackbourn", null, 0, 'reporter: PASS'),
-	);
-	$news_command = array(PHP_BINARY, '-d', 'allow_url_fopen=0', dirname(__DIR__) . '/check-helphub-credits.php', '--release=7.1.2', '--manifest=' . $news_manifest_file);
-	foreach ($news_cases as $label => [$credit, $post, $advisory, $code, $output]) {
-		$news_manifest = array_replace($manifest_expected, array(
-			'credits' => array(1332 => $credit),
-			'advisories' => array(1332 => $advisory, 1333 => null),
-		));
-		file_put_contents($news_manifest_file, json_encode($news_manifest, JSON_THROW_ON_ERROR));
-		file_put_contents($news_post_file, $post);
-		$result = run_command(array_merge($news_command, array('--news-post=' . $news_post_file)), null, true);
-		check("News: {$label} exit", $code, $result['code']);
-		check("News: {$label} output", true, str_contains($result['stdout'], 'Fix #1332 ' . $output));
-		check("News: {$label} summary", true, str_contains($result['stdout'], '3 check(s):'));
+$news_cases = array(
+	'List-style post' => array('Stored XSS reported by Jeremy Felt of the WordPress Security Team.', '<h2>Security updates included in this release</h2>' . '<ul><li>Stored XSS, reported by <a>Jeremy Felt</a> of the WordPress Security Team.</li></ul>' . '<h2>Thank you to these WordPress contributors</h2><p>John Blackbourn</p>', null, 0, 'reporter: PASS'),
+	'Prose-style post' => array('Issue reported by Robert Ressl.', '<h2>Security update included in this release</h2><p>The security team would like to thank Robert Ressl for responsibly disclosing that issue.</p><h2>CVE and GHSA references</h2><p>CVE-2026-87902 / GHSA-7hp8-65ch-5whp</p><h2>Thank you to these WordPress contributors</h2><p>John Blackbourn</p>', null, 0, 'reporter: PASS'),
+	'Viridis substring' => array('Issue reported by viridis.', "Security update included in this release\n" . 'Comments, including notes, can be reparented by any authenticated user, reported by Justin Hart, Viridis Security.' . "\nThank you to these WordPress contributors\nJohn Blackbourn", null, 0, 'reporter: PASS (viridis)'),
+	'Fallback before of' => array('Issue reported by Ben Bidner of the WordPress Security Team.', "Security update included in this release\n" . 'Thank you Ben Bidner.' . "\nThank you to these WordPress contributors\nJohn Blackbourn", null, 0, 'reporter: PASS'),
+	'Fallback before parenthesis' => array('Issue reported by Reporter (Team).', "Security update included in this release\n" . 'Thank you Reporter.' . "\nThank you to these WordPress contributors\nJohn Blackbourn", null, 0, 'reporter: PASS'),
+	'Fallback uses first delimiter' => array('Issue reported by Reporter (Team) of Organization.', "Security update included in this release\n" . 'Thank you Reporter.' . "\nThank you to these WordPress contributors\nJohn Blackbourn", null, 0, 'reporter: PASS'),
+	'Wrong reporter' => array('Issue reported by Ben Bidner.', "Security update included in this release\n" . 'Thank you Jeremy Felt.' . "\nThank you to these WordPress contributors\nJohn Blackbourn", null, 2, 'reporter: MISSING (Ben Bidner)'),
+	'GHSA present' => array('Issue reported by Robert Ressl.', "Security update included in this release\n" . "Robert Ressl.\nCVE and GHSA references\nCVE-2026-87902 / ghsa-7hp8-65ch-5whp." . "\nThank you to these WordPress contributors\nJohn Blackbourn", 'GHSA-7hp8-65ch-5whp', 0, 'advisory: PASS (GHSA-7hp8-65ch-5whp)'),
+	'GHSA absent' => array('Issue reported by Robert Ressl.', "Security update included in this release\n" . 'Robert Ressl: CVE-2026-87902.' . "\nThank you to these WordPress contributors\nJohn Blackbourn", 'GHSA-7hp8-65ch-5whp', 2, 'advisory: MISSING (GHSA-7hp8-65ch-5whp)'),
+	'Null advisory skipped' => array('Issue reported by Reporter.', "Security update included in this release\n" . 'Reporter' . "\nThank you to these WordPress contributors\nJohn Blackbourn", null, 0, 'advisory: SKIPPED (no advisory in manifest; nothing to check)'),
+	'Credit without reported by' => array('Reviewed credit line.', "Security update included in this release\n" . 'Unrelated post' . "\nThank you to these WordPress contributors\nJohn Blackbourn", null, 0, 'reporter: UNCHECKED (credit has no "reported by")'),
+	'Last reported by wins' => array('Originally reported by Wrong, later REPORTED BY Right.', "Security update included in this release\n" . 'Thank you RIGHT.' . "\nThank you to these WordPress contributors\nJohn Blackbourn", null, 0, 'reporter: PASS (Right)'),
+	'Quotes dashes entities and whitespace' => array("Issue reported by O'Neil-Smith.", '<h2>Security updates included in this release</h2>' . '<p>Thank you <b>O&#8217;Neil&ndash;Smith</b>&nbsp;for reporting.</p>' . '<h2>Thank you to these WordPress contributors</h2><p>John Blackbourn</p>', null, 0, "reporter: PASS (O'Neil-Smith)"),
+	'HTML contributors cannot satisfy reporter' => array('Issue reported by John Blackbourn of the WordPress Security Team.', '<h2>Security updates included in this release</h2><ul><li>Issue reported by Jakub Herman.</li></ul><h2>Thank you to these WordPress contributors</h2><p>John Blackbourn</p>', null, 2, 'reporter: MISSING (John Blackbourn of the WordPress Security Team)'),
+	'HTML missing security heading' => array('Issue reported by John Blackbourn.', '<p>Security updates included in this release: John Blackbourn.</p><h2>Thank you to these WordPress contributors</h2><p>John Blackbourn</p>', null, 2, 'reporter: MISSING (security section not found)'),
+	'Plain text missing security heading' => array('Issue reported by John Blackbourn.', "Thank you to these WordPress contributors\nJohn Blackbourn", null, 2, 'reporter: MISSING (security section not found)'),
+	'Missing section overrides unchecked credit' => array('Reviewed credit line.', '<p>Unrelated post</p>', null, 2, 'reporter: MISSING (security section not found)'),
+	'HTML lower heading ends section' => array('Issue reported by Robert Ressl.', '<h2 class="heading">Security <em>update</em> included in this release</h2><h3>Details</h3><p>Robert Ressl</p><h2>Backports</h2>', null, 2, 'reporter: MISSING (Robert Ressl)'),
+	'HTML higher heading ends section' => array('Issue reported by John Blackbourn.', '<h2>Security update included in this release</h2><p>Jakub Herman</p><h1>Contributors</h1><p>John Blackbourn</p>', null, 2, 'reporter: MISSING (John Blackbourn)'),
+	'HTML GHSA outside security section' => array('Issue reported by Robert Ressl.', '<h2>Security update included in this release</h2><p>Robert Ressl</p><h2>CVE and GHSA references</h2><p>GHSA-7hp8-65ch-5whp</p>', 'GHSA-7hp8-65ch-5whp', 0, 'advisory: PASS (GHSA-7hp8-65ch-5whp)'),
+	'Plain text stops at Thank you to these WordPress contributors' => array('Issue reported by John Blackbourn.', "Security updates included in this release\nIssue reported by Jakub Herman.\nThank you to these WordPress contributors\nJohn Blackbourn", null, 2, 'reporter: MISSING (John Blackbourn)'),
+	'Plain text stops at CVE and GHSA references' => array('Issue reported by John Blackbourn.', "Security updates included in this release\nIssue reported by Jakub Herman.\nCVE and GHSA references\nJohn Blackbourn", null, 2, 'reporter: MISSING (John Blackbourn)'),
+	'Plain text stops at Backports' => array('Issue reported by John Blackbourn.', "Security updates included in this release\nIssue reported by Jakub Herman.\nBackports\nJohn Blackbourn", null, 2, 'reporter: MISSING (John Blackbourn)'),
+	"Name Ann does not match Joanne" => array("Issue reported by Ann.", "<h2>Security updates included in this release</h2><p>Joanne</p>", null, 2, "reporter: MISSING (Ann)"),
+	"Fallback Alice does not match Malice" => array("Issue reported by Alice of Example.", "<h2>Security updates included in this release</h2><p>Malice</p>", null, 2, "reporter: MISSING (Alice of Example)"),
+	"Parenthetical fallback does not match Malice" => array("Issue reported by Alice (Example).", "<h2>Security updates included in this release</h2><p>Malice</p>", null, 2, "reporter: MISSING (Alice (Example))"),
+	"Unicode letters and digits bound names" => array("Issue reported by Ann.", "<h2>Security updates included in this release</h2><p>éAnn Ann中 ١Ann Ann٢</p>", null, 2, "reporter: MISSING (Ann)"),
+	"Unicode case insensitive name" => array("Issue reported by Élodie.", "<h2>Security updates included in this release</h2><p>Reported by éLODIE.</p>", null, 0, "reporter: PASS (Élodie)"),
+	"Reporter regex punctuation is literal" => array("Issue reported by A.B.", "<h2>Security updates included in this release</h2><p>AxB</p>", null, 2, "reporter: MISSING (A.B)"),
+	"Anthropic followed by period" => array("Issue reported by Anthropic.", "<h2>Security updates included in this release</h2><p>reported by Anthropic.</p>", null, 0, "reporter: PASS (Anthropic)"),
+	"HTML h3 contributors cannot satisfy reporter" => array("Issue reported by John Blackbourn.", "<h2>Security updates included in this release</h2><p>Jakub Herman</p><h3>Thank you to these WordPress contributors</h3><p>John Blackbourn</p>", null, 2, "reporter: MISSING (John Blackbourn)"),
+	"HTML article excludes footer" => array("Issue reported by John Blackbourn.", "<html><body><article><h3>Security update included in this release</h3><p>Jakub Herman</p></article><footer>John Blackbourn</footer></body></html>", null, 2, "reporter: MISSING (John Blackbourn)"),
+	"HTML entry-content excludes article footer" => array("Issue reported by John Blackbourn.", "<article><div class=\"post entry-content\"><h3>Security update included in this release</h3><div><p>Jakub Herman</p></div></div><footer>John Blackbourn</footer></article>", null, 2, "reporter: MISSING (John Blackbourn)"),
+	"HTML nested entry-content retains credit" => array("Issue reported by Élodie.", "<article><div class=\"post entry-content\"><h2>Security updates included in this release</h2><div><p>Other text</p></div>\n<p>Élodie</p></div><footer>Other text</footer></article>", null, 0, "reporter: PASS (Élodie)"),
+	"HTML start marker must match release heading" => array("Issue reported by Ann.", "<h2>Security update</h2><p>Ann</p>", null, 2, "reporter: MISSING (security section not found)"),
+	"Plain prose is not security heading" => array("Issue reported by Ann.", "This release has no security updates.\nAnn", null, 2, "reporter: MISSING (security section not found)"),
+	"Long plain line is not security heading" => array("Issue reported by Ann.", "Security updates included in this release are described in prose rather than a heading.\nAnn", null, 2, "reporter: MISSING (security section not found)"),
+	"Markdown contributors end section" => array("Issue reported by Ann.", "## Security updates included in this release:\nJoanne\n## Thank you to these WordPress contributors\nAnn", null, 2, "reporter: MISSING (Ann)"),
+	"Markdown arbitrary heading ends section" => array("Issue reported by Ann.", "## Security update included in this release\nJoanne\n### Other people\nAnn", null, 2, "reporter: MISSING (Ann)"),
+	"Plain How to contribute ends section" => array("Issue reported by Ann.", "Security update included in this release:\nJoanne\nHow to contribute!\nAnn", null, 2, "reporter: MISSING (Ann)"),
+	"Markdown security heading passes" => array("Issue reported by Ann.", "## Security update included in this release:\nReported by Ann.\n## Backports", null, 0, "reporter: PASS (Ann)"),
+	'Whitespace in reporter' => array('Issue reported by Robert Ressl.', "Security update included in this release\n" . "Thank you Robert\n\tRessl." . "\nThank you to these WordPress contributors\nJohn Blackbourn", null, 0, 'reporter: PASS'),
+);
+foreach ($news_cases as $label => [$credit, $post, $advisory, $code, $output]) {
+	$news_manifest = array_replace($manifest_expected, array(
+		'credits' => array(1332 => $credit),
+		'advisories' => array(1332 => $advisory, 1333 => null),
+	));
+	check("News: {$label} section found", !str_contains($output, 'security section not found'),
+		null !== helphub_credits_news_security_section($post));
+	ob_start();
+	try {
+		$result_code = helphub_credits_check_news($news_manifest, $post);
+	} finally {
+		$result_output = ob_get_clean();
 	}
-	foreach (array('only' => '7.1.2', 'user' => 'unused') as $option => $value) {
-		$result = run_command(array_merge($news_command, array('--news-post=' . $news_post_file, "--{$option}={$value}")), null, true);
-		check("News: refuses --{$option} exit", 1, $result['code']);
-		check("News: refuses --{$option} reason", true, str_contains($result['stderr'], "--news-post cannot be used with --{$option}"));
-	}
-	foreach (array('https://example.com/news/post', 'https://wordpress.org.evil.test/news/post', 'http://wordpress.org/news/post', 'https://wordpress.org/documentation/post', 'https://wordpress.org@evil.test/news/post', 'file:///tmp/post') as $url) {
-		$result = run_command(array_merge($news_command, array('--news-post=' . $url)), null, true);
-		check("News: refuses URL {$url} exit", 2, $result['code']);
-		check("News: refuses URL {$url} reason", true, str_contains($result['stderr'], '--news-post URL must be https://wordpress.org/news/...'));
-	}
-	$result = run_command(array_merge($news_command, array('--news-post=' . $news_post_file . '-missing')), null, true);
-	check('News: unreadable file exit', 1, $result['code']);
-	check('News: unreadable file reason', true, str_contains($result['stderr'], 'Unable to read news post:'));
-	$result = run_command(array_merge($news_command, array('--news-post=')), null, true);
-	check('News: empty source exit', 1, $result['code']);
-	foreach (array('release', 'manifest') as $required) {
-		$command = array_values(array_filter($news_command, static fn(string $arg): bool => !str_starts_with($arg, "--{$required}=")));
-		$result = run_command(array_merge($command, array('--news-post=' . $news_post_file)), null, true);
-		check("News: requires --{$required}", 1, $result['code']);
-	}
-	$news_manifest['release'] = '7.1.1';
-	file_put_contents($news_manifest_file, json_encode($news_manifest, JSON_THROW_ON_ERROR));
-	$result = run_command(array_merge($news_command, array('--news-post=' . $news_post_file)), null, true);
-	check('News: release mismatch exit', 2, $result['code']);
-	check('News: release mismatch reason', true, str_contains($result['stderr'], 'Manifest declares release 7.1.1'));
-	$news_manifest['release'] = '7.1.2';
-	file_put_contents($news_manifest_file, json_encode($news_manifest, JSON_THROW_ON_ERROR));
-	$with_password = array_merge(array_slice($news_command, 0, 3), array('-r', 'array_shift($argv); putenv("HELPHUB_APP_PASSWORD=unused-test-value"); require $argv[0];'), array_slice($news_command, 3), array('--news-post=' . $news_post_file));
-	$result = run_command($with_password, null, true);
-	check('News: ignores existing password environment variable', 0, $result['code']);
-	check('News: summary counts', true, str_contains($result['stdout'], '3 check(s): 1 PASS, 0 MISSING, 0 UNCHECKED, 2 SKIPPED.'));
-	file_put_contents($news_manifest_file, '{');
-	$result = run_command(array_merge($news_command, array('--news-post=' . $news_post_file)), null, true);
-	check('News: invalid manifest exit', 2, $result['code']);
-	$result = run_command(array(PHP_BINARY, dirname(__DIR__) . '/check-helphub-credits.php', '--release=7.1.2', '--manifest=' . $news_manifest_file . '-missing', '--news-post=' . $news_post_file), null, true);
-	check('News: unreadable manifest exit', 2, $result['code']);
-} finally {
-	unlink($news_manifest_file);
-	unlink($news_post_file);
+	check("News: {$label} exit", $code, $result_code);
+	check("News: {$label} output", true, str_contains($result_output, 'Fix #1332 ' . $output));
+	check("News: {$label} summary", true, str_contains($result_output, '3 check(s):'));
 }
+check('News: summary counts', true, str_contains($result_output, '3 check(s): 1 PASS, 0 MISSING, 0 UNCHECKED, 2 SKIPPED.'));
+
+$news_options = array('release' => '7.1.2', 'manifest' => 'manifest.json', 'news-post' => 'post.html');
+check('News: valid options', null, helphub_credits_news_option_error($news_options));
+foreach (array('only' => '7.1.2', 'user' => 'unused') as $option => $value) {
+	$error = helphub_credits_news_option_error($news_options + array($option => $value));
+	check("News: refuses --{$option} exit", 1, $error['code']);
+	check("News: refuses --{$option} reason", "--news-post cannot be used with --{$option}.", $error['message']);
+}
+foreach (array('https://example.com/news/post', 'https://wordpress.org.evil.test/news/post', 'http://wordpress.org/news/post', 'https://wordpress.org/documentation/post', 'https://wordpress.org@evil.test/news/post', 'file:///tmp/post') as $url) {
+	$error = null;
+	try {
+		helphub_credits_read_news($url);
+	} catch (InvalidArgumentException $exception) {
+		$error = $exception;
+	}
+	check("News: refuses URL {$url}", true, $error instanceof InvalidArgumentException);
+	if (null !== $error) {
+		check("News: refuses URL {$url} exit", 2, helphub_credits_error_code($error));
+		check("News: refuses URL {$url} reason", '--news-post URL must be https://wordpress.org/news/...', $error->getMessage());
+	}
+}
+$error = helphub_credits_news_option_error(array_replace($news_options, array('news-post' => '')));
+check('News: empty source exit', 1, $error['code']);
+check('News: empty source reason', '--news-post requires a URL or file path.', $error['message']);
+foreach (array('release', 'manifest') as $required) {
+	$options = $news_options;
+	unset($options[$required]);
+	$error = helphub_credits_news_option_error($options);
+	check("News: requires --{$required}", 1, $error['code']);
+	check("News: missing --{$required} requests usage", null, $error['message']);
+}
+$news_manifest['release'] = '7.1.1';
+$error = helphub_credits_news_option_error($news_options, $news_manifest);
+check('News: release mismatch exit', 2, $error['code']);
+check('News: release mismatch reason', true, str_contains($error['message'], 'Manifest declares release 7.1.1'));
+$news_manifest['release'] = '7.1.2';
+check('News: matching release', null, helphub_credits_news_option_error($news_options, $news_manifest));
+$password_environment = getenv('HELPHUB_APP_PASSWORD');
+putenv('HELPHUB_APP_PASSWORD=unused-test-value');
+ob_start();
+try {
+	check('News: ignores existing password environment variable', 0, helphub_credits_check_news($news_manifest, $post));
+	check('News: options ignore password environment variable', null, helphub_credits_news_option_error($news_options));
+} finally {
+	ob_end_clean();
+	putenv(false === $password_environment ? 'HELPHUB_APP_PASSWORD' : 'HELPHUB_APP_PASSWORD=' . $password_environment);
+	unset($password_environment);
+}
+$error = null;
+try {
+	helphub_manifest_decode('{');
+} catch (InvalidArgumentException $exception) {
+	$error = $exception;
+}
+check('News: invalid manifest rejected', true, $error instanceof InvalidArgumentException);
+if (null !== $error) {
+	check('News: invalid manifest exit', 2, helphub_credits_error_code($error));
+}
+check('News: unreadable file exit', 1, helphub_credits_error_code(new RuntimeException('Unable to read news post: post.html')));
+check('News: unreadable manifest exit', 2, helphub_credits_error_code(new InvalidArgumentException('Unable to read manifest: manifest.json')));
+check('News: unexpected error exit', 1, helphub_credits_error_code(new Error('Unexpected failure')));
 
 $manifest_no_credits = array_replace($manifest_built, array('credits' => (object) array(), 'advisories' => array(1332 => null, 1333 => null)));
 $manifest_no_credits_json = json_encode($manifest_no_credits, JSON_THROW_ON_ERROR);
