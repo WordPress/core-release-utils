@@ -147,6 +147,19 @@ check_throws('baseline gives up after three failures', RuntimeException::class, 
 restore_error_handler();
 ob_end_clean();
 
+try {
+	run_main(array('--versions=99.1.1', '--timeout=0'), transport(array(), $api));
+	$message = 'no error';
+} catch (InvalidArgumentException $error) {
+	$message = $error->getMessage();
+	restore_error_handler();
+	ob_end_clean();
+}
+check('an empty baseline is an error that names the version and --locales, not a PASS', array(true, true), array(str_contains($message, '99.1.1'), str_contains($message, '--locales')));
+check_throws('an empty baseline for one version fails a mixed run', InvalidArgumentException::class, static fn() => run_main(array('--versions=7.1.2,99.1.1', '--timeout=0'), transport(array_merge($baseline, files(array('it_IT', 'fr_FR', 'ar'), '7.1.2')), $api)));
+restore_error_handler();
+ob_end_clean();
+
 $called = false;
 check_throws('a major release without --locales fails before any request', InvalidArgumentException::class, static function () use (&$called): void {
 	main(array('x', '--versions=7.1.2,7.2'), array('transport' => static function () use (&$called): array {

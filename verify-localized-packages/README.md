@@ -11,7 +11,7 @@ php verify-localized-packages.php --versions=7.1.2 --locales=it_IT,fr_FR --timeo
 
 Pass the newest version on each branch in the release. Options: `--locales=LIST`, `--timeout=3h`, `--interval=5m`. Durations take `s`, `m`, or `h`. `--timeout=0` checks once.
 
-Exit 0 when every file exists. Exit 2 when a file is missing or could not be checked: report it in #meta-i18n. Exit 1 when the script broke, or a lookup for the expected locales failed three times.
+Exit 0 when every file exists. Exit 2 when a file is missing or could not be checked: report it in #meta-i18n. Exit 1 when the script broke, a version has no expected locales (check it, or pass `--locales`), or a lookup for the expected locales failed three times.
 
 ## How it works
 

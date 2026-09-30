@@ -18,7 +18,8 @@ declare(strict_types=1);
  *
  * Exit 0: every expected locale has a language pack and a localized zip for every version.
  * Exit 2: a file is missing or could not be checked. Report it in #meta-i18n.
- * Exit 1: the script broke, or a lookup for the expected locales failed three times.
+ * Exit 1: the script broke, a version has no expected locales (check it, or pass --locales),
+ *         or a lookup for the expected locales failed three times.
  *
  * A meta.wordpress.org job builds the files 1-3 hours after the en_US package, and it
  * fails silently for some locales. The expected locales for X.Y.Z are the locales on
@@ -319,6 +320,9 @@ function main(array $argv, array $io = array()): int {
 		}
 		$candidates        = with_retries(static fn(): array => candidate_locales($version, $transport), $sleep);
 		$targets[$version] = baseline($version, $candidates, static fn(string $url): bool => with_retries(static fn(): bool => $exists($url), $sleep));
+		if (!$targets[$version]) {
+			throw new InvalidArgumentException("{$version}: no locale has a localized zip for an earlier " . earlier_versions($version)[0] . ' version. Check the version, or pass --locales.');
+		}
 		$skipped           = array_diff($candidates, $targets[$version]);
 		echo "{$version}: " . count($targets[$version]) . ' locales expected, with a zip for an earlier ' . earlier_versions($version)[0] . ' version. '
 			. count($skipped) . ' not expected' . ($skipped ? ': ' . implode(', ', $skipped) : '') . ".\n";
