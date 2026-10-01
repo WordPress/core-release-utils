@@ -174,6 +174,10 @@ $args = array('svn-tags.php', '--generate', '--branches=6.5,6.4,6.3');
 $result = run($args, fake_svn($versions), null, NOW);
 check('three branches generate', 0, $result['code']);
 check('three ordered commands', command_line(DEFAULT_SVN, '6.5', '6.5.12') . "\n" . command_line(DEFAULT_SVN, '6.4', '6.4.9') . "\n" . command_line(DEFAULT_SVN, '6.3', '6.3.8') . "\n", $result['stdout']);
+check('range generates same commands', $result['stdout'], run(array('svn-tags.php', '--generate', '--branch-start=6.5', '--branch-end=6.3'), fake_svn($versions), null, NOW)['stdout']);
+$result = verify($line, null, array('--branch-start=6.5', '--branch-end=6.4'));
+check('range sets expected branches for verify', 2, $result['code']);
+check('range names missing branch', true, str_contains($result['stderr'], 'Missing branches: 6.4.'));
 $versions['6.4'] = '6.4.9-alpha-63811-src';
 $result = run($args, fake_svn($versions), null, NOW);
 check('unbumped generation exits 2', 2, $result['code']);
@@ -225,11 +229,21 @@ check_throws('oversized duration', InvalidArgumentException::class, static fn() 
 check('branch list deduplicates', array('6.5', '6.4'), parse_branches('6.5,6.4,6.5'));
 check_throws('empty branches', InvalidArgumentException::class, static fn() => parse_branches(''));
 check_throws('invalid branch', InvalidArgumentException::class, static fn() => parse_branches('6.5.12'));
+check('descending range', array('6.5', '6.4', '6.3'), branch_range('6.5', '6.3'));
+check('ascending range', array('6.3', '6.4', '6.5'), branch_range('6.3', '6.5'));
+check('range rolls over major versions', array('5.1', '5.0', '4.9', '4.8'), branch_range('5.1', '4.8'));
+check('single branch range', array('6.5'), branch_range('6.5', '6.5'));
+foreach (array(array('6.10', '6.5'), array('6.5', '6.5.1'), array('6', '6.5'), array('', '6.5')) as $bounds) {
+	check_throws('invalid range ' . implode(' to ', $bounds), InvalidArgumentException::class, static fn() => branch_range(...$bounds));
+}
 check('normalize repository URL', 'https://example.test/svn', parse_svn_url('https://example.test/svn/'));
 check_throws('shell characters rejected', InvalidArgumentException::class, static fn() => parse_svn_url('https://example.test/$(whoami)'));
 check('custom repository works', 0, verify(str_replace(DEFAULT_SVN, 'https://example.test/svn', $line), null, array('--svn=https://example.test/svn/'))['code']);
 foreach (array(array(), array('--generate'), array('--generate', '--verify'), array('--verify', '--execute'), array('--generate', '--branches=6.5', '--file=x'), array('--verify', '--min-age=bad')) as $options) {
 	check('invalid options ' . implode(' ', $options), 1, run(array_merge(array('svn-tags.php'), $options), $no_reads, $line, NOW)['code']);
+}
+foreach (array(array('--generate', '--branch-start=6.5'), array('--generate', '--branch-end=6.3'), array('--generate', '--branch-start=6.5', '--branch-end=6.3', '--branches=6.5'), array('--verify', '--branch-start=6.5')) as $options) {
+	check('invalid range options ' . implode(' ', $options), 1, run(array_merge(array('svn-tags.php'), $options), $no_reads, $line, NOW)['code']);
 }
 check('help is offline', 0, run(array('svn-tags.php', '--help'), $no_reads)['code']);
 $path = __DIR__ . '/commands-' . bin2hex(random_bytes(6)) . '.txt';
