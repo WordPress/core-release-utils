@@ -7,6 +7,7 @@ declare(strict_types=1);
  * Generate or verify WordPress release tag commands without executing them.
  * Usage: php svn-tags.php --generate --branches=6.5,6.4,6.3
  * Usage: php svn-tags.php --verify [--branches=6.5,6.4] [--file=commands.txt]
+ * Ranges: --branch-start=6.5 --branch-end=6.3 replaces --branches with 6.5,6.4,6.3.
  * Options: --svn=URL (repository root), --min-age=60s (whole number with s, m, or h).
  * Exit 0: all checks pass. Exit 2: findings. Exit 1: malformed input or tool failure.
  * Needs PHP 8.1 and svn. Tests: php tests/svn-tags-tests.php
@@ -14,7 +15,7 @@ declare(strict_types=1);
 
 const DEFAULT_SVN = 'https://develop.svn.wordpress.org';
 const ROW         = "%-8s %-26s %-16s %-8s %-13s %-12s %s\n";
-const USAGE       = 'Usage: svn-tags.php (--generate --branches=X.Y,... | --verify [--branches=X.Y,...] [--file=path]) [--svn=URL] [--min-age=60s]';
+const USAGE       = 'Usage: svn-tags.php (--generate BRANCHES | --verify [BRANCHES] [--file=path]) [--svn=URL] [--min-age=60s]' . "\n" . 'BRANCHES: --branches=X.Y,... or --branch-start=X.Y --branch-end=X.Y';
 
 function fail(string $message, int $code = 1): never {
 	fwrite(STDERR, $message . PHP_EOL);
@@ -37,6 +38,22 @@ function parse_branches(string $text): array {
 		if (1 !== preg_match('/^\d+\.\d+$/D', $branch)) {
 			throw new InvalidArgumentException("Bad branch: '{$branch}'. Expected X.Y.");
 		}
+	}
+	return $branches;
+}
+
+/** WordPress branches roll over after X.9, so 4.8 to 5.1 is 4.8,4.9,5.0,5.1. Order follows start to end. */
+function branch_range(string $start, string $end): array {
+	$bounds = array();
+	foreach (array('--branch-start' => $start, '--branch-end' => $end) as $name => $branch) {
+		if (1 !== preg_match('/^(\d+)\.(\d)$/D', $branch, $match)) {
+			throw new InvalidArgumentException("Bad {$name}: '{$branch}'. Expected X.Y with a single-digit Y.");
+		}
+		$bounds[] = (int) $match[1] * 10 + (int) $match[2];
+	}
+	$branches = array();
+	foreach (range($bounds[0], $bounds[1]) as $index) {
+		$branches[] = intdiv($index, 10) . '.' . $index % 10;
 	}
 	return $branches;
 }
@@ -291,19 +308,23 @@ function run(array $argv, ?callable $svn = null, ?string $input = null, ?int $no
 					throw new InvalidArgumentException('Choose exactly one mode.');
 				}
 				$mode = $arg;
-			} elseif (1 === preg_match('/^--(branches|file|svn|min-age)=(.*)$/D', $arg, $match)) {
+			} elseif (1 === preg_match('/^--(branches|branch-start|branch-end|file|svn|min-age)=(.*)$/D', $arg, $match)) {
 				$options[$match[1]] = $match[2];
 			} else {
 				throw new InvalidArgumentException("Unknown argument: {$arg}");
 			}
 		}
+		$ranged = isset($options['branch-start']) || isset($options['branch-end']);
+		if ($ranged && (!isset($options['branch-start'], $options['branch-end']) || isset($options['branches']))) {
+			throw new InvalidArgumentException('Use --branch-start and --branch-end together, without --branches.');
+		}
 		$generate = '--generate' === $mode;
-		if (null === $mode || ($generate && (!isset($options['branches']) || isset($options['file'])))) {
+		if (null === $mode || ($generate && ((!isset($options['branches']) && !$ranged) || isset($options['file'])))) {
 			throw new InvalidArgumentException(USAGE);
 		}
 		$svn_url  = parse_svn_url($options['svn']);
 		$min_age  = parse_duration($options['min-age']);
-		$expected = isset($options['branches']) ? parse_branches($options['branches']) : null;
+		$expected = $ranged ? branch_range($options['branch-start'], $options['branch-end']) : (isset($options['branches']) ? parse_branches($options['branches']) : null);
 		$entries  = array();
 		if ($generate) {
 			foreach ($expected as $branch) {

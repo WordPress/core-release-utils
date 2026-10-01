@@ -6,11 +6,14 @@ Generates or verifies WordPress release tag commands using the version on each S
 
 ```sh
 php svn-tags.php --generate --branches=6.5,6.4,6.3
+php svn-tags.php --generate --branch-start=6.5 --branch-end=6.3
 php svn-tags.php --verify --branches=6.5,6.4,6.3 --file=commands.txt
 php svn-tags.php --verify < commands.txt
 ```
 
 Options: `--branches=X.Y,...`, `--file=path` (verify only), `--svn=URL` (default `https://develop.svn.wordpress.org`), and `--min-age=60s`. Durations accept whole seconds or a number with `s`, `m`, or `h`.
+
+`--branch-start=X.Y --branch-end=X.Y` replaces `--branches` with every branch in between, inclusive and in start-to-end order. Ranges follow WordPress numbering, so `5.1` to `4.8` expands to `5.1,5.0,4.9,4.8`. Both bounds are required, `Y` must be a single digit, and ranges cannot be combined with `--branches`.
 
 Generation requires branches and preserves their order. Verification reads stdin unless `--file` is given. Blank lines and lines starting with `#` are ignored.
 
