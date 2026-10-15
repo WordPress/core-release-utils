@@ -523,6 +523,24 @@ check('HTTP retry exhaustion names the literal request method',
 	'Request did not produce an answer after ' . HELPHUB_HTTP_ATTEMPTS . ' attempts: GET https://example.test/unavailable (last HTTP 0).',
 	$http_error);
 
+// A page copied from the previous release keeps that release's version and fix count.
+$copied_page = static fn(string $opening, string $count, int $credits): string => helphub_page_to_text(
+	'<p>On October 6, 2026, WordPress ' . $opening . ' was released to the public.</p>'
+	. '<h3>Security updates</h3><p>This release features ' . $count . '. Because this is a security release, update now.</p><ul>'
+	. str_repeat('<li>An issue, reported by Ann</li>', $credits)
+	. '</ul><p>As a courtesy, these fixes are also available in older affected branches.</p>'
+);
+check('A matching opening and count are clean', array(), helphub_prose_defects('6.4.13', $copied_page('6.4.13', 'six security fixes', 6)));
+check('An opening that names another version is a finding',
+	array('Page 6.4.13 says "WordPress 6.4.12 was released". Published example: the 6.4.13 page named 6.4.12.'),
+	helphub_prose_defects('6.4.13', $copied_page('6.4.12', 'six security fixes', 6)));
+check('A count that disagrees with the credits is a finding',
+	array('Page 4.7.38 says it features one security fix(es) but credits 6. Published example: 24 pages of 7.1.3 said "one".'),
+	helphub_prose_defects('4.7.38', $copied_page('4.7.38', 'one security fix', 6)));
+check('A numeral count is read', 1, count(helphub_prose_defects('7.1.3', $copied_page('7.1.3', '8 security fixes', 7))));
+check('"Several" claims no count', array(), helphub_prose_defects('7.1.3', $copied_page('7.1.3', 'several security fixes', 7)));
+check('A four-part version matches itself', array(), helphub_prose_defects('4.2.26.2', $copied_page('4.2.26.2', 'one security fix', 1)));
+
 if ($failures) {
 	foreach ($failures as $failure) {
 		fwrite(STDERR, "FAIL: {$failure}\n");
