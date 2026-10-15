@@ -257,12 +257,16 @@ const HELPHUB_KNOWN_MISSPELLINGS = array(
 	'succesfully'   => 'successfully',
 );
 
+const HELPHUB_COUNT_WORDS = array('one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve');
+
 /**
  * Prose defects a generated page cannot have but a hand-written one can.
  *
- * Only two kinds, both chosen because they have no false positives worth the
- * noise: a word repeated back to back, and a spelling this project has seen go
- * wrong before. This is not a spellchecker and must not be described as one.
+ * Four kinds, each chosen because it has no false positives worth the noise: a
+ * word repeated back to back, a spelling this project has seen go wrong before,
+ * an opening sentence naming another version, and a fix count that disagrees
+ * with the page's own credit lines. This is not a spellchecker and must not be
+ * described as one.
  *
  * Note what it cannot do. "overridding" reached all 23 pages of the March 2026
  * release, so cross-page comparison is blind to it; only a list like the one
@@ -293,7 +297,40 @@ function helphub_prose_defects(string $version, string $text): array {
 		}
 	}
 
+	if (preg_match('/\bWordPress\s+([0-9]+(?:\.[0-9]+)+)\s+was released\b/', $text, $match) && $match[1] !== $version) {
+		$findings[] = sprintf(
+			'Page %s says "WordPress %s was released". Published example: the 6.4.13 page named 6.4.12.',
+			$version,
+			$match[1]
+		);
+	}
+
+	$bullets = helphub_credit_bullets($text);
+	if (null !== $bullets && preg_match('/\bThis release features\s+([a-z]+|[0-9]+)\s+security fix(?:es)?\b/i', $text, $match)) {
+		$claimed = helphub_count_word($match[1]);
+		if (null !== $claimed && count($bullets) !== $claimed) {
+			$findings[] = sprintf(
+				'Page %s says it features %s security fix(es) but credits %d. Published example: 24 pages of 7.1.3 said "one".',
+				$version,
+				$match[1],
+				count($bullets)
+			);
+		}
+	}
+
 	return $findings;
+}
+
+/**
+ * The number a count word or numeral states, or null for "several" and other words.
+ */
+function helphub_count_word(string $word): ?int {
+	if (ctype_digit($word)) {
+		return (int) $word;
+	}
+	$index = array_search(strtolower($word), HELPHUB_COUNT_WORDS, true);
+
+	return false === $index ? null : $index + 1;
 }
 
 /**

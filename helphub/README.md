@@ -290,11 +290,16 @@ failure, `2` needs human attention.
    request. A different tip is refused. If the branch or base is not in the
    checkout, the file list stays unverified.
 
-4. **Repeated words and known misspellings.** Checks 1 to 3 compare pages
-   against each other or against the release, so all three are blind to a
-   mistake copied identically everywhere. "overridding" reached all 23 March
+4. **Repeated words, known misspellings, and copied-forward facts.** Checks 1
+   to 3 compare pages against each other or against the release, so all three
+   are blind to a mistake copied identically everywhere. "overridding" reached all 23 March
    2026 pages and is still published; "this is is not" is live on 6.9.3. This is
    the only check that sees a consistent error.
+
+   It also flags a page whose opening sentence names another version, and a
+   "features N security fixes" count that differs from the page's own credit
+   lines. A page copied from the previous release keeps both: on 7.1.3, 24 pages
+   said "one security fix" and two named the version before.
 
 5. **Links resolve.** Opt-in with `--check-links`, because everything else here
    is offline and deterministic, and release day is the wrong time to find out a
