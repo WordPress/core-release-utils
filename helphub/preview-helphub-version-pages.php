@@ -15,14 +15,14 @@ require_once __DIR__ . '/lib/preview-helphub-version-pages-lib.php';
 function helphub_preview_usage(string $script): never {
 	fail(
 		"Usage: {$script} --release=<X.Y.Z> --manifest=<helphub-manifest-X.Y.Z.json> --checkout=<path> "
-		. '[--check-published] [--verbose] [--help]'
+		. '[--release-remote=<url>] [--check-published] [--verbose] [--help]'
 	);
 }
 
-$options = cli_options($argv, array('release:', 'manifest:', 'checkout:', 'check-published', 'verbose', 'help'));
+$options = cli_options($argv, array('release:', 'manifest:', 'checkout:', 'release-remote:', 'check-published', 'verbose', 'help'));
 if (isset($options['help'])) {
 	echo "Usage: {$argv[0]} --release=<X.Y.Z> --manifest=<helphub-manifest-X.Y.Z.json> --checkout=<path> "
-		. "[--check-published] [--verbose] [--help]\n";
+		. "[--release-remote=<url>] [--check-published] [--verbose] [--help]\n";
 	exit(0);
 }
 set_verbose(isset($options['verbose']));
@@ -30,6 +30,10 @@ foreach (array('release', 'manifest', 'checkout') as $required) {
 	if (!isset($options[$required]) || !is_string($options[$required]) || '' === $options[$required]) {
 		helphub_preview_usage($argv[0]);
 	}
+}
+$release_remote = $options['release-remote'] ?? 'https://github.com/WordPress/wordpress-develop.git';
+if (!is_string($release_remote) || '' === $release_remote) {
+	helphub_preview_usage($argv[0]);
 }
 
 try {
@@ -49,10 +53,31 @@ try {
 
 	$rows       = array();
 	$unverified = array();
+	$tags       = null;
+	verbose_log('Reading public release tags');
+	try {
+		$result = run_command(array('git', 'ls-remote', '--tags', $release_remote), $checkout, true);
+		if (0 === $result['code']) {
+			$tags = helphub_parse_release_tags($result['stdout']);
+		}
+	} catch (RuntimeException $exception) {
+		verbose_log($exception->getMessage());
+	}
+	if (null === $tags) {
+		$unverified[] = 'Public release tags could not be read.';
+	}
 	foreach (array_keys($manifest['targets']) as $target) {
 		$reaching = helphub_fixes_for_target($manifest['fixes'], $target);
 		$version  = helphub_branch_version($checkout, $target);
 		$branch   = helphub_backport_branch_files($checkout, $manifest, $target);
+		$latest   = null === $tags ? null : helphub_latest_release_tag($target, $tags);
+
+		if (null !== $tags && null !== $version) {
+			$problem = helphub_release_tag_check($target, $version['next'], $latest);
+			if (null !== $problem) {
+				$unverified[] = $problem;
+			}
+		}
 
 		if (null === $version) {
 			$unverified[] = "Branch {$target} is not in the checkout, so its version could not be read.";
@@ -71,21 +96,23 @@ try {
 			? null
 			: count(helphub_documented_paths($branch['files']));
 		$rows[$target] = array(
-			'version' => $version,
-			'fixes'   => count($reaching),
-			'files'   => $files,
-			'missing' => helphub_missing_credits($reaching, $manifest['credits']),
+			'version'  => $version,
+			'last_tag' => $latest['tag'] ?? null,
+			'fixes'    => count($reaching),
+			'files'    => $files,
+			'missing'  => helphub_missing_credits($reaching, $manifest['credits']),
 		);
 	}
 
 	echo "HelpHub version pages needed for WordPress {$manifest['release']}\n";
 	echo str_repeat('-', 72) . "\n";
-	printf("  %-7s %-12s %-6s %-7s %s\n", 'branch', 'would be', 'fixes', 'files', 'credits to write');
+	printf("  %-7s %-12s %-12s %-6s %-7s %s\n", 'branch', 'would be', 'last tag', 'fixes', 'files', 'credits to write');
 	foreach ($rows as $target => $row) {
 		printf(
-			"  %-7s %-12s %-6s %-7s %s\n",
+			"  %-7s %-12s %-12s %-6s %-7s %s\n",
 			$target,
 			null === $row['version'] ? '?' : $row['version']['next'],
+			$row['last_tag'] ?? '?',
 			$row['fixes'],
 			null === $row['files'] ? '?' : $row['files'],
 			$row['missing'] ? implode(', ', $row['missing']) : '-'

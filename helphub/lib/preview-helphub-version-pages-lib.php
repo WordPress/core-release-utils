@@ -81,6 +81,46 @@ function helphub_parse_version_string(string $raw): ?array {
 	return array('raw' => $raw, 'current' => $version, 'next' => $next, 'bumped' => false);
 }
 
+function helphub_parse_release_tags(string $output): array {
+	$tags = array();
+	foreach (explode("\n", $output) as $line) {
+		if (1 === preg_match('/\A[0-9a-f]+\s+refs\/tags\/([0-9]+\.[0-9]+(?:\.[0-9]+)?)\z/', trim($line), $match)) {
+			$tags[] = $match[1];
+		}
+	}
+
+	return $tags;
+}
+
+function helphub_latest_release_tag(string $target, array $tags): ?array {
+	$latest = null;
+	foreach ($tags as $tag) {
+		if ($target !== helphub_draft_line($tag)) {
+			continue;
+		}
+		if (null === $latest || version_compare($tag, $latest, '>')) {
+			$latest = $tag;
+		}
+	}
+	if (null === $latest) {
+		return null;
+	}
+	$parts = explode('.', $latest);
+
+	return array('tag' => $latest, 'next' => $target . '.' . ((int) ($parts[2] ?? 0) + 1));
+}
+
+function helphub_release_tag_check(string $target, string $version, ?array $latest): ?string {
+	if (null === $latest) {
+		return "Branch {$target}: no public {$target} tag found (would be {$version}).";
+	}
+	if ($version !== $latest['next']) {
+		return "Branch {$target} would be {$version}; newest public tag is {$latest['tag']}, expected {$latest['next']}.";
+	}
+
+	return null;
+}
+
 /**
  * Which fixes in the scope reach one branch.
  *

@@ -40,17 +40,19 @@ php helphub/preview-helphub-version-pages.php \
 ```
 
 ```
-  branch  would be     fixes  files   credits to write
-  7.0     7.0.3        9      11      1066, 1231, 1242, ...
-  6.9     6.9.6        9      11      1066, 1231, 1242, ...
-  6.8     6.8.7        7      8       1066, 1231, 1245, ...
+  branch  would be     last tag     fixes  files   credits to write
+  7.0     7.0.3        7.0.2        9      11      1066, 1231, 1242, ...
+  6.9     6.9.6        6.9.5        9      11      1066, 1231, 1242, ...
+  6.8     6.8.7        6.8.6        7      8       1066, 1231, 1245, ...
 ```
 
 The version each branch would publish is read from its own `$wp_version`. A
 branch still on its last release publishes the next patch number; one already
-bumped to an alpha publishes the version that alpha names. The output says which
-branches are in which state, so the derived list can be checked rather than
-trusted.
+bumped to an alpha publishes the version that alpha names.
+The derived version is checked against the line's newest public tag; a
+mismatch, missing tag, or failed read is Unverified.
+`--release-remote=<url>` overrides the default
+`https://github.com/WordPress/wordpress-develop.git` remote.
 
 It then prints the `--versions` argument for the generator. **Trim it to the
 versions the release actually publishes.** Receiving a backport is not the same
