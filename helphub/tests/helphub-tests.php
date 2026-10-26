@@ -279,6 +279,57 @@ foreach (array(
 		helphub_missing_credits(array(101), $credits));
 }
 
+$release_tag_output = implode("\n", array_map(
+	static fn(string $ref): string => str_repeat('a', 40) . "\t" . $ref,
+	array(
+		'refs/tags/3.9',
+		'refs/tags/3.9^{}',
+		'refs/tags/3.9.9',
+		'refs/tags/3.9.12',
+		'refs/tags/3.9.12^{}',
+		'refs/tags/3.9.99^{}',
+		'refs/tags/7.0.2',
+		'refs/tags/7.0.3-alpha',
+		'refs/tags/7.0.3-beta1',
+		'refs/tags/7.0.3-RC1',
+		'refs/tags/v3.9.13',
+		'refs/tags/3.9.12.1',
+		'refs/tags/3.9.13-extra',
+		'refs/tags/6',
+		'refs/tags/example',
+		'refs/heads/3.9',
+	)
+)) . "\n";
+check('Preview parses only X.Y and X.Y.N release tags, ignoring peeled refs',
+	array('3.9', '3.9.9', '3.9.12', '7.0.2'), helphub_parse_release_tags($release_tag_output));
+check('Preview parsing an empty tag read supplies no invented releases', array(), helphub_parse_release_tags(''));
+
+$release_tags = array('3.9.12', '3.9.9', '3.9', '3.90.99', '3.10.99', '7.0.2', '5.9');
+check('Preview selects 3.9.12 over 3.9.9 and confines tags to the exact branch line',
+	array('tag' => '3.9.12', 'next' => '3.9.13'), helphub_latest_release_tag('3.9', $release_tags));
+check('Preview selects the same newest tag regardless of input order',
+	array('tag' => '3.9.12', 'next' => '3.9.13'), helphub_latest_release_tag('3.9', array_reverse($release_tags)));
+$lagged_version = helphub_parse_version_string('3.9.11-src');
+check('Preview flags a lagging version file that would repeat the newest public patch',
+	'Branch 3.9 would be 3.9.12; newest public tag is 3.9.12, expected 3.9.13.',
+	helphub_release_tag_check('3.9', $lagged_version['next'], helphub_latest_release_tag('3.9', $release_tags)));
+check('Preview also flags a would-be version ahead of the expected patch',
+	'Branch 3.9 would be 3.9.14; newest public tag is 3.9.12, expected 3.9.13.',
+	helphub_release_tag_check('3.9', '3.9.14', helphub_latest_release_tag('3.9', $release_tags)));
+check('Preview accepts the patch immediately after the newest public tag', null,
+	helphub_release_tag_check('3.9', '3.9.13', helphub_latest_release_tag('3.9', $release_tags)));
+$alpha_version = helphub_parse_version_string('7.0.3-alpha-62792-src');
+check('Preview accepts an alpha already bumped to the patch after the newest public tag', null,
+	helphub_release_tag_check('7.0', $alpha_version['next'], helphub_latest_release_tag('7.0', $release_tags)));
+check('Preview has no newest tag for a line absent from public tags', null, helphub_latest_release_tag('6.8', $release_tags));
+check('Preview cannot verify a line without a public tag',
+	'Branch 6.8: no public 6.8 tag found (would be 6.8.1).',
+	helphub_release_tag_check('6.8', '6.8.1', helphub_latest_release_tag('6.8', $release_tags)));
+check('Preview derives the first patch from an X.Y-only public tag',
+	array('tag' => '5.9', 'next' => '5.9.1'), helphub_latest_release_tag('5.9', $release_tags));
+check('Preview accepts the first patch after an X.Y-only public tag', null,
+	helphub_release_tag_check('5.9', '5.9.1', helphub_latest_release_tag('5.9', $release_tags)));
+
 
 $manifest_entry = array('branch' => 'origin/release/wp-7.1.2-into-7.1', 'commit' => str_repeat('a', 40), 'base' => 'origin/7.1');
 $manifest_expected = array(
