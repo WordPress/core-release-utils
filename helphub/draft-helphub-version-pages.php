@@ -14,14 +14,14 @@ require_once __DIR__ . '/lib/draft-helphub-version-pages-lib.php';
 function helphub_draft_usage(string $script): never {
 	fail(
 		"Usage: {$script} --release=<X.Y.Z> --manifest=<helphub-manifest-X.Y.Z.json> --checkout=<path> "
-		. '--versions=<X.Y.Z,...> --date=<YYYY-MM-DD> --out=<dir> [--verbose] [--help]'
+		. '--versions=<X.Y.Z,...> --date=<YYYY-MM-DD> --out=<dir> [--security-issues=N] [--verbose] [--help]'
 	);
 }
 
-$options = cli_options($argv, array('release:', 'manifest:', 'checkout:', 'versions:', 'date:', 'out:', 'verbose', 'help'));
+$options = cli_options($argv, array('release:', 'manifest:', 'checkout:', 'versions:', 'date:', 'out:', 'security-issues:', 'verbose', 'help'));
 if (isset($options['help'])) {
 	echo "Usage: {$argv[0]} --release=<X.Y.Z> --manifest=<helphub-manifest-X.Y.Z.json> --checkout=<path> "
-		. "--versions=<X.Y.Z,...> --date=<YYYY-MM-DD> --out=<dir> [--verbose] [--help]\n";
+		. "--versions=<X.Y.Z,...> --date=<YYYY-MM-DD> --out=<dir> [--security-issues=N] [--verbose] [--help]\n";
 	exit(0);
 }
 set_verbose(isset($options['verbose']));
@@ -38,6 +38,10 @@ try {
 		throw new InvalidArgumentException("Unable to read manifest: {$options['manifest']}");
 	}
 	$manifest = helphub_manifest_decode($manifest_json);
+	$entries = helphub_manifest_entries($manifest['fixes'], $manifest['issues'] ?? array());
+	if (array_key_exists('security-issues', $options)) {
+		helphub_security_issues_check($entries, $options['security-issues']);
+	}
 	$checkout = require_checkout($options['checkout']);
 	if ($manifest['release'] !== $options['release']) {
 		fail(
@@ -117,7 +121,9 @@ try {
 			$versions,
 			array_keys($manifest['targets']),
 			$release_paths,
-			$packages
+			$packages,
+			$manifest['issues'] ?? array(),
+			$entries
 		);
 
 		$path = rtrim($out_dir, '/') . "/{$version}.txt";

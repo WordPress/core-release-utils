@@ -95,9 +95,41 @@ and nothing else—publishing stays a human action.
 derivation. A branch that received the backport did not necessarily ship a
 release: the July 2026 wave prepared sixteen branches and released three.
 
+Use `--security-issues=N` to check the release lead's announced issue count.
+`N` must be a positive integer. A mismatch exits 2 before writing any page.
+Add missing issues in the source scope, then export the manifest again.
+
+### Issues
+
+Manifest format 1 accepts an optional `issues` object alongside `credits` and
+`advisories`. Use it when fixes share an issue or one fix closes several issues.
+
+```json
+"issues": {
+  "91001": ["example/repo#1"],
+  "91002": ["example/repo#1", "example/repo#2"]
+}
+```
+
+Keys follow the same fix-number rules as `credits` and `advisories`.
+When present, `issues` must name every fix and no unknown fixes.
+Each value is a non-empty list of unique `owner/repo#N` references.
+Owner and repository names allow ASCII letters, digits, underscores, periods,
+and hyphens. Issue numbers are positive integers without leading zeros.
+References are compared exactly and never fetched.
+
+Fixes sharing issues form one entry, including transitive joins.
+The first fix in manifest order leads the entry.
+A joined fix must have no `credits` value; the lead's credit line covers both.
+Each page gets one bullet per reaching entry, using all member fixes' targets.
+Missing credits name lead fixes. Counts follow distinct issues across reaching
+entries; the total counts distinct issues across every entry.
+Without `issues`, each fix remains one entry with one issue, preserving existing output.
+`draft-helphub-credits` drafts each entry from its lead fix's advisory. When a joined fix adds an issue the lead does not close, it leaves a FILL IN and exits 2.
+
 ### Credit lines
 
-Each fix needs one authored credit line in the manifest's `credits` block, keyed
+Each entry needs one authored credit line in the manifest's `credits` block, keyed
 by fix number and used verbatim:
 
 ```json

@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/helphub-manifest-lib.php';
+
 /**
  * Page assembly for draft-helphub-version-pages.php.
  *
@@ -298,11 +300,12 @@ function helphub_sort_versions(array $versions): array {
  * @param array<int,string>   $credits Fix number to its authored credit line.
  * @return array{bullets:string[],missing:int[]}
  */
-function helphub_credit_lines(array $fixes, array $credits, string $line): array {
+function helphub_credit_lines(array $fixes, array $credits, string $line, array $issues = array(), ?array $entries = null): array {
+	$entries = $entries ?? helphub_manifest_entries($fixes, $issues);
 	$bullets = array();
 	$missing = array();
-	foreach ($fixes as $number => $targets) {
-		if (!in_array($line, $targets, true)) {
+	foreach ($entries as $number => $entry) {
+		if (!in_array($line, $entry['targets'], true)) {
 			continue;
 		}
 		$credit = $credits[$number] ?? null;
@@ -319,20 +322,29 @@ function helphub_credit_is_authored(?string $credit): bool {
 	return null !== $credit && false === strpos($credit, 'FILL IN');
 }
 
-/**
- * How many of the release's fixes reached one branch.
- *
- * @param array<int,string[]> $fixes
- */
-function helphub_fix_count(array $fixes, string $line): int {
-	$count = 0;
-	foreach ($fixes as $targets) {
-		if (in_array($line, $targets, true)) {
-			$count++;
+function helphub_fix_count(array $fixes, ?string $line = null, array $issues = array(), ?array $entries = null): int {
+	$entries = $entries ?? helphub_manifest_entries($fixes, $issues);
+	$references = array();
+	foreach ($entries as $entry) {
+		if (null === $line || in_array($line, $entry['targets'], true)) {
+			$references = array_merge($references, $entry['issues']);
 		}
 	}
 
-	return $count;
+	return count(array_unique($references));
+}
+
+function helphub_security_issues_check(array $entries, mixed $expected): void {
+	if (!is_string($expected) || 1 !== preg_match('/\A[1-9][0-9]*\z/', $expected)) {
+		throw new InvalidArgumentException('--security-issues must be a positive integer.');
+	}
+	$total = helphub_fix_count(array(), null, array(), $entries);
+	if ((string) $total !== $expected) {
+		throw new InvalidArgumentException(
+			"Manifest issues add up to {$total} distinct issue(s), but --security-issues says {$expected}. "
+			. "Add each fix's missing issue to its `issues` list, then re-export the manifest."
+		);
+	}
 }
 
 /**
@@ -362,8 +374,9 @@ function helphub_fix_count(array $fixes, string $line): int {
  * @param string[]            $versions All released versions, newest first.
  * @return string[] Block lines.
  */
-function helphub_courtesy_block(array $fixes, array $versions, array $targets): array {
-	$total = count($fixes);
+function helphub_courtesy_block(array $fixes, array $versions, array $targets, array $issues = array(), ?array $entries = null): array {
+	$entries = $entries ?? helphub_manifest_entries($fixes, $issues);
+	$total = helphub_fix_count($fixes, null, $issues, $entries);
 	$lines   = array();
 	$lines[] = helphub_paragraph(
 		'As a courtesy, these fixes are also available in older '
@@ -376,7 +389,7 @@ function helphub_courtesy_block(array $fixes, array $versions, array $targets): 
 	$companions = array_slice($versions, 1);
 	foreach ($companions as $version) {
 		$line  = helphub_draft_line($version);
-		$count = helphub_fix_count($fixes, $line);
+		$count = helphub_fix_count($fixes, $line, $issues, $entries);
 		// The version names its own page. This is the only route a reader has
 		// from the release they are on to the one that fixes their branch, and
 		// the published lead pages link it, so an unlinked bullet is a dead end
@@ -427,8 +440,8 @@ function helphub_courtesy_block(array $fixes, array $versions, array $targets): 
 		}
 	}
 	$reached_below = false;
-	foreach ($fixes as $fix_targets) {
-		if (array_intersect($below, $fix_targets)) {
+	foreach ($entries as $entry) {
+		if (array_intersect($below, $entry['targets'])) {
 			$reached_below = true;
 			break;
 		}
@@ -499,10 +512,13 @@ function helphub_draft_page(
 	array $versions,
 	array $targets,
 	array $release_paths = array(),
-	array $packages = array()
+	array $packages = array(),
+	array $issues = array(),
+	?array $entries = null
 ): array {
+	$entries = $entries ?? helphub_manifest_entries($fixes, $issues);
 	$line    = helphub_draft_line($version);
-	$credit  = helphub_credit_lines($fixes, $credits, $line);
+	$credit  = helphub_credit_lines($fixes, $credits, $line, $issues, $entries);
 	$is_lead = $version === ($versions[0] ?? $version);
 
 	$out   = array();
@@ -525,7 +541,7 @@ function helphub_draft_page(
 
 	if ($is_lead && 1 < count($versions)) {
 		$out[] = '';
-		foreach (helphub_courtesy_block($fixes, $versions, $targets) as $courtesy) {
+		foreach (helphub_courtesy_block($fixes, $versions, $targets, $issues, $entries) as $courtesy) {
 			$out[] = $courtesy;
 		}
 	}

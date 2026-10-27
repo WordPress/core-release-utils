@@ -535,6 +535,158 @@ foreach ($manifest_invalid as $manifest_label => [$manifest_field, $manifest_val
 foreach (array('invalid JSON' => '{', 'top-level array' => '[]', 'top-level null' => 'null') as $manifest_label => $manifest_bad_json) {
 	check_throws("HelpHub manifest rejects {$manifest_label}", Throwable::class, static fn() => helphub_manifest_decode($manifest_bad_json));
 }
+$issue_manifest = array(
+	'format' => 1,
+	'release' => '9.9.1',
+	'targets' => array('9.9' => null, '9.8' => null, '9.7' => null, '9.6' => null),
+	'fixes' => array(91001 => array('9.9'), 91002 => array('9.8'), 91003 => array('9.9', '9.8', '9.7')),
+	'credits' => array(91001 => 'Shared issue reported by Example.', 91003 => 'Three issues reported by Sample.'),
+	'advisories' => array(91001 => null, 91002 => null, 91003 => null),
+	'issues' => array(
+		91001 => array('example/repo#1'),
+		91002 => array('example/repo#1'),
+		91003 => array('example/repo#2', 'example/repo#3', 'example/repo#4'),
+	),
+);
+check('Issues round-trip without changing manifest format or adding entries', $issue_manifest,
+	helphub_manifest_decode(json_encode($issue_manifest, JSON_THROW_ON_ERROR)));
+$issue_invalid = array(
+	'null map' => array('issues', null, 'issues must be an object'),
+	'list map' => array('issues', array(), 'issues must be an object'),
+	'scalar map' => array('issues', 'example/repo#1', 'issues must be an object'),
+	'empty map' => array('issues', (object) array(), 'missing 91001, 91002, 91003'),
+	'missing fix' => array('issues', array(91001 => array('example/repo#1')), 'missing 91002, 91003'),
+	'unknown fix' => array('issues', $issue_manifest['issues'] + array(91004 => array('example/repo#5')), 'unknown fix 91004'),
+	'bad key' => array('issues', array('091001' => array('example/repo#1')), 'key 091001 must be a fix number'),
+	'empty list' => array('issues', array(91001 => array()), 'fix 91001 must contain a non-empty list'),
+	'object list' => array('issues', array(91001 => (object) array('0' => 'example/repo#1')), 'non-empty list'),
+	'scalar list' => array('issues', array(91001 => 'example/repo#1'), 'non-empty list'),
+	'non-string reference' => array('issues', array(91001 => array(1)), 'owner/repo#N'),
+	'duplicate reference' => array('issues', array(91001 => array('example/repo#1', 'example/repo#1')), 'fix 91001 names an issue twice'),
+	'joined credit' => array('credits', $issue_manifest['credits'] + array(91002 => 'Another credit.'),
+		"fix 91002 joins lead fix 91001 and must not carry a credit; lead fix 91001's credit line covers both"),
+);
+foreach (array('example/repo#0', 'example/repo#01', 'example/repo#-1', 'example/repo#1.0', 'example/repo',
+	'example/repo/extra#1', ' example/repo#1', "example/repo#1\n", 'example/repo#1 trailing') as $bad_reference) {
+	$issue_invalid['bad reference ' . json_encode($bad_reference)] = array('issues', array(91001 => array($bad_reference)), 'owner/repo#N');
+}
+foreach ($issue_invalid as $label => [$field, $value, $message]) {
+	$error = null;
+	try {
+		helphub_manifest_decode(json_encode(array_replace($issue_manifest, array($field => $value)), JSON_THROW_ON_ERROR));
+	} catch (InvalidArgumentException $exception) {
+		$error = $exception;
+	}
+	check('Issues reject ' . $label, true, $error instanceof InvalidArgumentException);
+	check('Issues explain ' . $label, true, str_contains($error?->getMessage() ?? '', $message));
+}
+$issue_fixes = $issue_manifest['fixes'];
+$issue_credits = $issue_manifest['credits'];
+$issues = $issue_manifest['issues'];
+$issue_targets = array_keys($issue_manifest['targets']);
+$issue_versions = array('9.9.1', '9.8.1', '9.7.1');
+$issue_entries = helphub_manifest_entries($issue_fixes, $issues);
+check('Shared issue pair folds into its first fix', array(91001, 91003), array_keys($issue_entries));
+check('Shared issue entry unions targets', array('9.9', '9.8'), $issue_entries[91001]['targets']);
+check('Shared issue entry keeps both fixes', array(91001, 91002), $issue_entries[91001]['fixes']);
+check('Shared issue entry counts one reference', array('example/repo#1'), $issue_entries[91001]['issues']);
+check('Shared issue credit reaches the joined target', array('bullets' => array_values($issue_credits), 'missing' => array()),
+	helphub_credit_lines($issue_fixes, $issue_credits, '9.8', $issues));
+check('Missing credit names only the lead', array(
+	'bullets' => array('<!-- FILL IN: credit line for fix #91001 -->', $issue_credits[91003]), 'missing' => array(91001),
+), helphub_credit_lines($issue_fixes, array(91003 => $issue_credits[91003]), '9.8', $issues));
+check('One fix closing three issues counts three', 3, helphub_fix_count($issue_fixes, '9.7', $issues));
+check('Distinct total counts four issues across three fixes', 4, helphub_fix_count($issue_fixes, null, $issues));
+check('Joined target counts all reaching issues', 4, helphub_fix_count($issue_fixes, '9.8', $issues));
+check('Unreached target counts zero issues', 0, helphub_fix_count($issue_fixes, '9.6', $issues));
+$courtesy = implode("\n", helphub_courtesy_block($issue_fixes, $issue_versions, $issue_targets, $issues));
+check('Courtesy counts all distinct issues on joined branch', true, str_contains($courtesy, 'WordPress 9.8 is affected by all 4 vulnerabilities.'));
+check('Courtesy counts three of four on narrower branch', true, str_contains($courtesy, 'WordPress 9.7 is affected by 3 of the 4 vulnerabilities.'));
+$pair_fixes = array_intersect_key($issue_fixes, array(91001 => true, 91002 => true));
+$pair_issues = array_intersect_key($issues, $pair_fixes);
+$pair_courtesy = implode("\n", helphub_courtesy_block($pair_fixes, array('9.9.1', '9.8.1'), $issue_targets, $pair_issues));
+check('Shared issue pair uses singular courtesy wording', true, str_contains($pair_courtesy, 'WordPress 9.8 is affected by this vulnerability.'));
+check('Shared issue pair uses singular fix wording', true, str_contains($pair_courtesy, 'has been released containing a fix.'));
+$reached_below = implode("\n", helphub_courtesy_block($pair_fixes, array('9.9.1'), $issue_targets, $pair_issues));
+check('Joined target below the wave requires a fill-in', true, str_contains($reached_below, 'FILL IN: this release also reached'));
+check('Joined target below the wave is never declared unaffected', false, str_contains($reached_below, 'are not affected'));
+$pair_page = helphub_draft_page('9.8.1', '2000-01-01', array('src/example.php'), $pair_fixes,
+	array(91001 => $issue_credits[91001]), array('9.9.1', '9.8.1'), $issue_targets, array(), array(), $pair_issues);
+check('Joined branch page has one credit bullet', array($issue_credits[91001]), helphub_credit_bullets(helphub_page_to_text($pair_page['body'])));
+check('Joined branch page has no missing credit', array(), $pair_page['missing_credits']);
+$issue_page = helphub_draft_page('9.9.1', '2000-01-01', array('src/example.php'), $issue_fixes,
+	$issue_credits, $issue_versions, $issue_targets, array(), array(), $issues);
+check('Prebuilt entries produce the same page', $issue_page, helphub_draft_page('9.9.1', '2000-01-01', array('src/example.php'),
+	$issue_fixes, $issue_credits, $issue_versions, $issue_targets, array(), array(), $issues, $issue_entries));
+check('Lead page uses issue counts in courtesy block', true, str_contains($issue_page['body'], '3 of the 4 vulnerabilities'));
+$legacy_page = helphub_draft_page('9.9.1', '2000-01-01', array('src/example.php'), $issue_fixes,
+	$issue_credits, $issue_versions, $issue_targets);
+check('Absent issues preserves original page bytes', '831cd7e4f03cd760c1812af83d33bd81946f0bfa3a80573c8c40b30a8503c459', hash('sha256', $legacy_page['body']));
+check('Empty issues map preserves original page', $legacy_page, helphub_draft_page('9.9.1', '2000-01-01', array('src/example.php'),
+	$issue_fixes, $issue_credits, $issue_versions, $issue_targets, array(), array(), array()));
+check('Absent issues still counts fixes', 3, helphub_fix_count($issue_fixes));
+check('Checker pairs lead credits after skipping joined fix', array('lines' => array_values($issue_credits), 'fill_ins' => array()),
+	helphub_credits_expected_lines($issue_fixes, $issue_credits, '9.8', $issues));
+check('Checker accepts prebuilt entries', helphub_credits_expected_lines($issue_fixes, $issue_credits, '9.8', $issues),
+	helphub_credits_expected_lines($issue_fixes, $issue_credits, '9.8', $issues, $issue_entries));
+check('Checker reports only lead fill-ins', array('lines' => array(), 'fill_ins' => array(91001, 91003)),
+	helphub_credits_expected_lines($issue_fixes, array(), '9.8', $issues));
+ob_start();
+try {
+	$issue_news_code = helphub_credits_check_news($issue_manifest, "Security updates\nExample and Sample\n");
+	$issue_news_output = ob_get_contents();
+} finally {
+	ob_end_clean();
+}
+check('News reporter check accepts grouped credits without changes', 0, $issue_news_code);
+check('News reporter check skips joined fix', false, str_contains($issue_news_output, 'Fix #91002 reporter:'));
+check('News advisory check still covers joined fix', true, str_contains($issue_news_output, 'Fix #91002 advisory: SKIPPED'));
+
+$bridge_fixes = array(91009 => array('9.9'), 91008 => array('9.8'), 91007 => array('9.7'), 91006 => array('9.6'), 91005 => array('9.5'));
+$bridge_issues = array(
+	91009 => array('example/repo#1'),
+	91008 => array('example/repo#2'),
+	91007 => array('example/repo#1', 'example/repo#2', 'example/repo#3'),
+	91006 => array('example/repo#3'),
+	91005 => array('example/repo#11'),
+);
+$bridge_entries = helphub_manifest_entries($bridge_fixes, $bridge_issues);
+check('Bridge merges earlier entries and later transitive member in manifest order', array(91009, 91005), array_keys($bridge_entries));
+check('Bridge unions all distinct issues', 3, count($bridge_entries[91009]['issues']));
+check('Bridge unions all member targets', array(), array_diff(array('9.9', '9.8', '9.7', '9.6'), $bridge_entries[91009]['targets']));
+check('Bridge issues all reach a joined branch', 3, helphub_fix_count($bridge_fixes, '9.6', $bridge_issues));
+check('Different full references remain distinct', 4, helphub_fix_count($bridge_fixes, null, $bridge_issues));
+check('Bridge missing credit names earliest fix', array('bullets' => array('<!-- FILL IN: credit line for fix #91009 -->'), 'missing' => array(91009)),
+	helphub_credit_lines($bridge_fixes, array(), '9.6', $bridge_issues));
+$bridge_manifest = array_replace($issue_manifest, array(
+	'fixes' => $bridge_fixes,
+	'targets' => array_fill_keys(array('9.9', '9.8', '9.7', '9.6', '9.5'), null),
+	'issues' => $bridge_issues,
+	'credits' => array(91008 => 'Credit from an entry later joined.'),
+	'advisories' => array_fill_keys(array_keys($bridge_fixes), null),
+));
+$bridge_error = null;
+try {
+	helphub_manifest_decode(json_encode($bridge_manifest, JSON_THROW_ON_ERROR));
+} catch (InvalidArgumentException $exception) {
+	$bridge_error = $exception->getMessage();
+}
+check('A bridge rejects a former lead credit with the final lead named',
+	"Manifest fix 91008 joins lead fix 91009 and must not carry a credit; lead fix 91009's credit line covers both.", $bridge_error);
+check('Announced count accepts distinct issue total', null, helphub_security_issues_check($issue_entries, '4'));
+foreach (array('', '0', '-1', '1.5', '4x', '04', ' 4', "4\n", array('4'), false) as $bad_count) {
+	check_throws('Announced issue count must be a positive integer: ' . json_encode($bad_count), InvalidArgumentException::class,
+		static fn() => helphub_security_issues_check($issue_entries, $bad_count));
+}
+$count_error = null;
+try {
+	helphub_security_issues_check($issue_entries, '5');
+} catch (InvalidArgumentException $exception) {
+	$count_error = $exception->getMessage();
+}
+check('Announced count mismatch explains how to repair the manifest',
+	"Manifest issues add up to 4 distinct issue(s), but --security-issues says 5. Add each fix's missing issue to its `issues` list, then re-export the manifest.", $count_error);
+
 $manifest_major = json_encode(array_replace($manifest_built, array('release' => '7.2')), JSON_THROW_ON_ERROR);
 check('HelpHub manifest accepts an X.Y release', '7.2', helphub_manifest_decode($manifest_major)['release']);
 

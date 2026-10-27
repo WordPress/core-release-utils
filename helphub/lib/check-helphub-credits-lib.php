@@ -48,10 +48,11 @@ function helphub_credits_is_fill_in(string $normalized): bool {
  * @param array<int,string[]> $fixes
  * @return int[]
  */
-function helphub_credits_reaching_fixes(array $fixes, string $line): array {
+function helphub_credits_reaching_fixes(array $fixes, string $line, array $issues = array(), ?array $entries = null): array {
+	$entries = $entries ?? helphub_manifest_entries($fixes, $issues);
 	$numbers = array();
-	foreach ($fixes as $number => $targets) {
-		if (in_array($line, $targets, true)) {
+	foreach ($entries as $number => $entry) {
+		if (in_array($line, $entry['targets'], true)) {
 			$numbers[] = $number;
 		}
 	}
@@ -71,9 +72,10 @@ function helphub_credits_reaching_fixes(array $fixes, string $line): array {
  * @param array<int,string>   $credits
  * @return array{lines:string[],fill_ins:int[]}
  */
-function helphub_credits_expected_lines(array $fixes, array $credits, string $line): array {
-	$result   = helphub_credit_lines($fixes, $credits, $line);
-	$numbers  = helphub_credits_reaching_fixes($fixes, $line);
+function helphub_credits_expected_lines(array $fixes, array $credits, string $line, array $issues = array(), ?array $entries = null): array {
+	$entries = $entries ?? helphub_manifest_entries($fixes, $issues);
+	$result   = helphub_credit_lines($fixes, $credits, $line, $issues, $entries);
+	$numbers  = helphub_credits_reaching_fixes($fixes, $line, $issues, $entries);
 	$fill_ins = array_flip($result['missing']);
 
 	$lines = array();
