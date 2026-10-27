@@ -66,6 +66,7 @@ try {
 	if (null === $tags) {
 		$unverified[] = 'Public release tags could not be read.';
 	}
+	$entries = helphub_manifest_entries($manifest['fixes'], $manifest['issues'] ?? array());
 	foreach (array_keys($manifest['targets']) as $target) {
 		$reaching = helphub_fixes_for_target($manifest['fixes'], $target);
 		$version  = helphub_branch_version($checkout, $target);
@@ -100,7 +101,7 @@ try {
 			'last_tag' => $latest['tag'] ?? null,
 			'fixes'    => count($reaching),
 			'files'    => $files,
-			'missing'  => helphub_missing_credits($reaching, $manifest['credits']),
+			'missing'  => helphub_credit_lines($manifest['fixes'], $manifest['credits'], $target, $manifest['issues'] ?? array(), $entries)['missing'],
 		);
 	}
 

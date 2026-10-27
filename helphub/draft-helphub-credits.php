@@ -56,7 +56,18 @@ try {
 	$entries    = array();
 	$no_advisory = array();
 	$unreadable = array();
-	foreach (array_keys($manifest['fixes']) as $number) {
+	$widened    = array();
+	foreach (helphub_manifest_entries($manifest['fixes'], $manifest['issues'] ?? array()) as $number => $group) {
+		$joined = array_diff($group['fixes'], array($number));
+		if (array_diff($group['issues'], isset($manifest['issues']) ? $manifest['issues'][$number] : $group['issues'])) {
+			$widened[] = "#{$number} (with #" . implode(', #', $joined) . ')';
+			$entries[$number] = sprintf(
+				'<!-- FILL IN: description and attribution for fix #%d, which also covers the issues of fix(es) #%s -->',
+				$number,
+				implode(', #', $joined)
+			);
+			continue;
+		}
 		$ghsa = $manifest['advisories'][$number] ?? null;
 		if (null === $ghsa) {
 			$no_advisory[] = $number;
@@ -96,6 +107,10 @@ try {
 	if ($no_advisory) {
 		$attention[] = 'No advisory recorded for fix(es) ' . implode(', ', $no_advisory)
 			. '. Record each identifier in the scope, export the manifest again, then re-run.';
+	}
+	if ($widened) {
+		$attention[] = 'Fix(es) ' . implode(', ', $widened)
+			. ' share an entry that covers more issues than the lead fix closes. Write one description covering every advisory in the entry.';
 	}
 	if ($unreadable) {
 		$attention[] = 'Could not read advisory for ' . implode(', ', $unreadable)

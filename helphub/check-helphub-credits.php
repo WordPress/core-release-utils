@@ -217,6 +217,7 @@ try {
 	$missing_count    = 0;
 	$unreadable_count = 0;
 
+	$entries = helphub_manifest_entries($manifest['fixes'], $manifest['issues'] ?? array());
 	foreach ($resolved as $line => $version) {
 		$facts = $pages_map[$version];
 		$text  = helphub_page_to_text($facts['content']);
@@ -224,7 +225,7 @@ try {
 		if (null !== $live) {
 			$live = array_map('helphub_credits_normalize_line', $live);
 		}
-		$expected = helphub_credits_expected_lines($manifest['fixes'], $manifest['credits'], $line);
+		$expected = helphub_credits_expected_lines($manifest['fixes'], $manifest['credits'], $line, $manifest['issues'] ?? array(), $entries);
 
 		if (null === $live) {
 			echo "  {$version}: MISMATCH\n";
