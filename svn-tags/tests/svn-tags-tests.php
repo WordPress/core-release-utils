@@ -73,6 +73,34 @@ function fake_audit(array $tags = array('6.5.12' => array()), string $url = DEFA
 		foreach (array('' => 'last', '/src/wp-includes/version.php' => 'bump') as $path => $key) {
 			$reads["log --xml -q -l 1 {$url}/branches/{$data['branch']}{$path}@{$data['copy']}"] = array('code' => 0, 'stdout' => '<log><logentry revision="' . $data[$key] . '"><date>2026-10-01T10:00:00Z</date></logentry></log>', 'stderr' => '');
 		}
+		$start = (int) $data['copy'] + 1;
+		$post  = $data['post'] ?? null;
+		$log   = '<log/>';
+		if (null !== $post) {
+			$post += array('revision' => '1220', 'paths' => array('src/wp-includes/version.php' => 'M', 'composer.json' => 'M', 'package.json' => 'M', 'package-lock.json' => 'M'), 'before' => array(), 'after' => array());
+			$paths = '';
+			foreach ($post['paths'] as $file => $action) {
+				$paths .= '<path action="' . $action . '">/branches/' . $data['branch'] . '/' . $file . '</path>';
+			}
+			$log = '<log><logentry revision="' . $post['revision'] . '"><paths>' . $paths . '</paths></logentry></log>';
+			$parts = explode('.', $tag);
+			$next  = $parts[0] . '.' . $parts[1] . '.' . ((int) ($parts[2] ?? 0) + 1);
+			foreach (array('before' => (int) $post['revision'] - 1, 'after' => $post['revision']) as $when => $revision) {
+				$version = 'before' === $when ? $tag : $next;
+				$files = $post[$when] + array(
+					'src/wp-includes/version.php' => version_body('before' === $when ? $tag . '-src' : $next . '-alpha-' . $post['revision'] . '-src'),
+					'composer.json' => json_encode(array('name' => 'example/core', 'version' => $version)),
+					'package.json' => json_encode(array('name' => 'example-core', 'version' => $version, 'private' => true)),
+					'package-lock.json' => json_encode(array('name' => 'example-core', 'version' => $version, 'lockfileVersion' => 3, 'packages' => array('' => array('name' => 'example-core', 'version' => $version), 'node_modules/example' => array('version' => '1.0.0')))),
+				);
+				foreach ($files as $file => $body) {
+					$reads["cat {$url}/branches/{$data['branch']}/{$file}@{$revision}"] = null === $body
+						? array('code' => 1, 'stdout' => '', 'stderr' => "svn: E160013: File not found: revision {$revision}, path '/branches/{$data['branch']}/{$file}'")
+						: array('code' => 0, 'stdout' => $body, 'stderr' => '');
+				}
+			}
+		}
+		$reads["log --xml -v -r {$start}:HEAD -l 1 {$url}/branches/{$data['branch']}"] = array('code' => 0, 'stdout' => $log, 'stderr' => '');
 	}
 	return static function (array $args) use ($reads): array {
 		$key = implode(' ', $args);
@@ -289,8 +317,8 @@ $result = audit($line);
 check('audit matching tag passes', 0, $result['code']);
 check('audit stdout stays empty on pass', '', $result['stdout']);
 check('audit pass summary', true, str_contains($result['stderr'], "PASS: 1 tags audited.\n"));
-check('audit table columns', true, str_contains($result['stderr'], sprintf(AUDIT_ROW, 'Branch', 'Tag', 'Created', 'Copied from', 'Bump', 'Version read', 'Verdict')));
-check('audit table values', true, str_contains($result['stderr'], sprintf(AUDIT_ROW, '6.5', '6.5.12', 'r1211', '6.5@1210', 'r1200', '6.5.12-src', 'PASS')));
+check('audit table columns', true, str_contains($result['stderr'], sprintf(AUDIT_ROW, 'Branch', 'Tag', 'Created', 'Copied from', 'Bump', 'Version read', 'Post bump', 'Verdict')));
+check('audit table values', true, str_contains($result['stderr'], sprintf(AUDIT_ROW, '6.5', '6.5.12', 'r1211', '6.5@1210', 'r1200', '6.5.12-src', 'none', 'PASS')));
 check('audit message form', true, str_contains($result['stderr'], 'Line 1 (6.5): message form Tag.'));
 $result = audit("# commands\n\n{$line}\n");
 check('audit ignores blanks and comments', 0, $result['code']);
@@ -321,11 +349,11 @@ foreach ($cases as $name => [$data, $finding]) {
 	check("audit {$name} fail summary", true, str_ends_with($result['stderr'], "FAIL: see findings above.\n"));
 }
 $result = audit($line, fake_audit(array('6.5.12' => array('missing' => true))));
-check('audit missing tag has unknown cells and FAIL row', true, str_contains($result['stderr'], sprintf(AUDIT_ROW, '6.5', '6.5.12', '-', '-', '-', '-', 'FAIL')));
+check('audit missing tag has unknown cells and FAIL row', true, str_contains($result['stderr'], sprintf(AUDIT_ROW, '6.5', '6.5.12', '-', '-', '-', '-', '-', 'FAIL')));
 $result = audit($line, fake_audit(array('6.5.12' => array('source' => '/branches/6.4'))));
-check('audit wrong branch skips the bump check', true, str_contains($result['stderr'], sprintf(AUDIT_ROW, '6.5', '6.5.12', 'r1211', '6.4@1210', '-', '6.5.12-src', 'FAIL')));
+check('audit wrong branch skips the bump check', true, str_contains($result['stderr'], sprintf(AUDIT_ROW, '6.5', '6.5.12', 'r1211', '6.4@1210', '-', '6.5.12-src', 'none', 'FAIL')));
 $result = audit($line, fake_audit(array('6.5.12' => array('later' => '<logentry revision="1215"/>'))));
-check('audit uses oldest entry for creation', true, str_contains($result['stderr'], sprintf(AUDIT_ROW, '6.5', '6.5.12', 'r1211', '6.5@1210', 'r1200', '6.5.12-src', 'FAIL')));
+check('audit uses oldest entry for creation', true, str_contains($result['stderr'], sprintf(AUDIT_ROW, '6.5', '6.5.12', 'r1211', '6.5@1210', 'r1200', '6.5.12-src', 'none', 'FAIL')));
 $second = command_line(DEFAULT_SVN, '6.4', '6.4.9', 'Tagging WordPress 6.4.9.');
 $reader = fake_audit(array('6.5.12' => array(), '6.4.9' => array('branch' => '6.4', 'source' => '/branches/6.4', 'message' => 'Tagging WordPress 6.4.9.')));
 $result = audit($line . "\n" . $second, $reader);
@@ -397,6 +425,74 @@ try {
 	}
 }
 check('audit missing file exits 1', 1, run(array('svn-tags.php', '--audit', '--file=' . $path), $no_reads)['code']);
+
+foreach (array('6.5.12' => '6.5.13', '6.5' => '6.5.1') as $tag => $next) {
+	$result = audit(command_line(DEFAULT_SVN, '6.5', $tag), fake_audit(array($tag => array('post' => array(
+		'after' => array('src/wp-includes/version.php' => version_body($next . '-alpha-1220-src')),
+	)))));
+	check("audit correct post bump for {$tag} passes", 0, $result['code']);
+	check("audit correct post bump for {$tag} row", true, str_contains($result['stderr'], sprintf(AUDIT_ROW, '6.5', $tag, 'r1211', '6.5@1210', 'r1200', $tag . '-src', 'r1220', 'PASS')));
+	check("audit correct post bump for {$tag} empty stdout", '', $result['stdout']);
+}
+$result = audit($line);
+check('audit no post bump passes', 0, $result['code']);
+check('audit no post bump reports none', true, str_contains($result['stderr'], sprintf(AUDIT_ROW, '6.5', '6.5.12', 'r1211', '6.5@1210', 'r1200', '6.5.12-src', 'none', 'PASS')));
+$result = audit($line, fake_audit(array('6.5.12' => array('post' => array('paths' => array('readme.html' => 'M'))))));
+check('audit first unrelated branch change passes', 0, $result['code']);
+check('audit first unrelated branch change reports none', true, str_contains($result['stderr'], sprintf(AUDIT_ROW, '6.5', '6.5.12', 'r1211', '6.5@1210', 'r1200', '6.5.12-src', 'none', 'PASS')));
+$post_paths = array('src/wp-includes/version.php' => 'M', 'composer.json' => 'M', 'package.json' => 'M', 'package-lock.json' => 'M');
+$without_composer = array_diff_key($post_paths, array('composer.json' => true));
+$cases = array(
+	'extra file' => array(array('paths' => $post_paths + array('readme.html' => 'M')), 'post-release bump r1220 changed unexpected path /branches/6.5/readme.html.'),
+	'wrong next version' => array(array('after' => array('src/wp-includes/version.php' => version_body('6.5.14-alpha-1220-src'))), "post-release bump r1220 version '6.5.14-alpha-1220-src' is not '6.5.13-alpha-1220-src'."),
+	'wrong alpha revision' => array(array('after' => array('src/wp-includes/version.php' => version_body('6.5.13-alpha-1219-src'))), "post-release bump r1220 version '6.5.13-alpha-1219-src' is not '6.5.13-alpha-1220-src'."),
+	'extra version.php edit' => array(array('after' => array('src/wp-includes/version.php' => version_body('6.5.13-alpha-1220-src') . '$db_version = 1230;')), 'post-release bump r1220 changed version.php beyond the wp_version literal.'),
+	'extra package.json edit' => array(array('after' => array('package.json' => '{"name":"example-core","version":"6.5.13","private":false}')), 'post-release bump r1220 changed package.json beyond the required version fields or left them incorrect.'),
+	'old lockfile root version' => array(array('after' => array('package-lock.json' => '{"name":"example-core","version":"6.5.13","lockfileVersion":3,"packages":{"":{"name":"example-core","version":"6.5.12"},"node_modules/example":{"version":"1.0.0"}}}')), 'post-release bump r1220 changed package-lock.json beyond the required version fields or left them incorrect.'),
+	'missing composer change' => array(array('paths' => $without_composer), 'post-release bump r1220 did not change composer.json.'),
+	'non-M action' => array(array('paths' => array('package.json' => 'R') + $post_paths), "post-release bump r1220 action 'R' for /branches/6.5/package.json is not M."),
+	'wrong previous JSON version' => array(array('before' => array('composer.json' => '{"name":"example/core","version":"6.5.11"}')), "composer.json version fields before post-release bump r1220 do not read '6.5.12'."),
+	'invalid JSON' => array(array('after' => array('package.json' => '{')), 'post-release bump r1220 has invalid JSON in package.json:'),
+	'missing PHP literal' => array(array('after' => array('src/wp-includes/version.php' => '<?php $other = 1;')), 'post-release bump r1220: No wp_version assignment in version.php.'),
+);
+foreach ($cases as $name => [$post, $finding]) {
+	$result = audit("# commands\n{$line}", fake_audit(array('6.5.12' => array('post' => $post))));
+	check("audit post bump {$name} exits 2", 2, $result['code']);
+	check("audit post bump {$name} finding with source line", true, str_contains($result['stderr'], 'Line 2 (6.5): ' . $finding));
+	check("audit post bump {$name} FAIL row", true, str_contains($result['stderr'], sprintf(AUDIT_ROW, '6.5', '6.5.12', 'r1211', '6.5@1210', 'r1200', '6.5.12-src', 'r1220', 'FAIL')));
+	check("audit post bump {$name} empty stdout", '', $result['stdout']);
+}
+$result = audit($line, fake_audit(array('6.5.12' => array('post' => array('paths' => $without_composer, 'before' => array('composer.json' => null))))));
+check('audit absent composer on old branch is optional', 0, $result['code']);
+check('audit absent composer on old branch reports post bump', true, str_contains($result['stderr'], sprintf(AUDIT_ROW, '6.5', '6.5.12', 'r1211', '6.5@1210', 'r1200', '6.5.12-src', 'r1220', 'PASS')));
+$result = audit($line, fake_audit(array('6.5.12' => array('post' => array('after' => array('package.json' => "{\n  \"private\": true,\n  \"version\": \"6.5.13\",\n  \"name\": \"example-core\"\n}\n"))))));
+check('audit JSON whitespace and key order are immaterial', 0, $result['code']);
+$result = audit($line, fake_audit(array('6.5.12' => array('post' => array('before' => array('package.json' => '{"name":"example-core","version":"6.5.12","engine":"1.0"}'), 'after' => array('package.json' => '{"name":"example-core","version":"6.5.13","engine":"1"}'))))));
+check('audit JSON compares values strictly', 2, $result['code']);
+$result = audit($line, fake_audit(array('6.5.12' => array('post' => array('before' => array('package.json' => '{"name":"example-core","version":"6.5.12","config":{}}'), 'after' => array('package.json' => '{"name":"example-core","version":"6.5.13","config":[]}'))))));
+check('audit JSON keeps objects and lists distinct', 2, $result['code']);
+check('missing path accepts the cat warning form', true, missing_path("svn: warning: W160013: '/!svn/rvr/1219/branches/4.7/composer.json' path not found\nsvn: E200009: Could not cat all targets because some targets don't exist\nsvn: E200009: Illegal target for the requested operation\n"));
+$before = "<?php\n// \$wp_version = '6.5.12-src';\n\$wp_version /* release */ = \"6.5.12-src\";\n\$other = '6.5.12-src';\n";
+$after  = str_replace('"6.5.12-src"', '"6.5.13-alpha-1220-src"', $before);
+$result = audit($line, fake_audit(array('6.5.12' => array('post' => array('before' => array('src/wp-includes/version.php' => $before), 'after' => array('src/wp-includes/version.php' => $after))))));
+check('audit changes only assignment literal preserving comments and other strings', 0, $result['code']);
+$result = audit($line, fake_audit(array('6.5.12' => array('post' => array('before' => array('src/wp-includes/version.php' => $before), 'after' => array('src/wp-includes/version.php' => str_replace('6.5.12-src', '6.5.13-alpha-1220-src', $before)))))));
+check('audit detects edits to comments and other version strings', 2, $result['code']);
+$result = audit($line, fake_audit(array('6.5.12' => array('post' => array('revision' => '1230')))));
+check('audit delayed post bump passes', 0, $result['code']);
+check('audit delayed post bump uses its own revision', true, str_contains($result['stderr'], sprintf(AUDIT_ROW, '6.5', '6.5.12', 'r1211', '6.5@1210', 'r1200', '6.5.12-src', 'r1230', 'PASS')));
+$result = audit(str_replace(DEFAULT_SVN, '^', $line), fake_audit(array('6.5.12' => array('post' => array())), 'https://example.test/svn'), array('--svn=https://example.test/svn'));
+check('audit post bump uses custom repository for all reads', 0, $result['code']);
+$post_reader = fake_audit(array('6.5.12' => array('post' => array())));
+foreach (array('log', 'cat') as $operation) {
+	$reader = static function (array $args) use ($operation, $post_reader): array {
+		$is_post = in_array('1211:HEAD', $args, true) || str_contains(end($args), '/branches/6.5/') && 'cat' === $args[0];
+		return $is_post && $operation === $args[0] ? array('code' => 1, 'stdout' => '', 'stderr' => 'svn: E170001: Authentication failed') : $post_reader($args);
+	};
+	$result = audit($line, $reader);
+	check("audit post bump {$operation} failure is a tool error", 1, $result['code']);
+	check("audit post bump {$operation} failure reports authentication error", true, str_contains($result['stderr'], 'Authentication failed'));
+}
 
 if ($failures) {
 	foreach ($failures as $failure) {

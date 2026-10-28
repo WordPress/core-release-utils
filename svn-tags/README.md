@@ -61,6 +61,8 @@ After tagging, `--audit` reads the same command list from stdin or `--file`, wit
 
 The stderr table shows branch, tag, creation revision, copy source, bump revision, version read, and verdict. Unknown cells show `-`. Findings follow the table.
 
+Audit also validates any post-release bump's next patch version, alpha revision, required JSON version updates, and absence of unrelated edits. The `Post bump` column shows its revision, `none` when the first branch change is absent or leaves `version.php` untouched, or `-` without a copy source.
+
 Stdout always stays empty. The exit codes above also apply to audit: 0 for success, 2 for findings, and 1 for input or tool errors.
 
 Choose exactly one of `--generate`, `--verify`, or `--audit`. Explicit `--min-age` is rejected with audit because commit age does not apply.
