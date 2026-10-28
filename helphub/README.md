@@ -61,13 +61,11 @@ published three, and only the release manager knows which.
 
 ### After the release
 
-```sh
-php helphub/preview-helphub-version-pages.php ... --check-published
-```
-
-Asks wordpress.org which pages exist. A version that shipped without a page is
-the failure this catches, and it is the one that produces silence rather than an
-error. Before the release every page is missing, which is expected.
+Run `check-helphub-credits.php` without a credential (see
+[Checking live credits](#checking-live-credits)). It infers the release wave
+from the live lead page and checks each manifest branch against it. A branch
+with no page in that wave is reported unreadable. This preview can't do that
+check, because a tagged branch already reads as its next version.
 
 ## Drafting HelpHub version pages
 
