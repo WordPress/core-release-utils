@@ -12,6 +12,7 @@ php svn-tags.php --verify < commands.txt
 php svn-tags.php --audit --branches=6.5,6.4,6.3 --file=commands.txt
 php svn-tags.php --audit --branch-start=6.5 --branch-end=6.3 --file=commands.txt
 php svn-tags.php --audit < commands.txt
+php svn-tags.php --audit --branch-start=6.5 --branch-end=6.3 --tags=6.5.12,6.4.9,6.3.8
 ```
 
 Options: `--branches=X.Y,...`, `--file=path` (verify or audit), `--svn=URL` (default `https://develop.svn.wordpress.org`), and `--min-age=60s`. Durations accept whole seconds or a number with `s`, `m`, or `h`.
@@ -51,6 +52,8 @@ These are point-in-time checks, not a repository lock. Branches or tags can chan
 ## Audit
 
 After tagging, `--audit` reads the same command list from stdin or `--file`, with the same blank-line, comment, and path handling.
+
+Without the command list, pass `--tags=X.Y.Z,...` instead. Each tag's branch is its `X.Y`. With no command message to match, the audit checks the landed message's form and flags mixed forms.
 
 - Requires each tag to exist with no changes after creation.
 - Requires the creation revision to add exactly one path: the expected tag, copied from the expected branch at a numeric revision.
