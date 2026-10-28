@@ -7,6 +7,7 @@ declare(strict_types=1);
  * Generate or verify WordPress release tag commands without executing them.
  * Usage: php svn-tags.php --generate --branches=6.5,6.4,6.3
  * Usage: php svn-tags.php --verify [--branches=6.5,6.4] [--file=commands.txt]
+ * Usage: php svn-tags.php --audit [--branches=6.5,6.4] [--file=commands.txt]
  * Ranges: --branch-start=6.5 --branch-end=6.3 replaces --branches with 6.5,6.4,6.3.
  * Options: --svn=URL (repository root), --min-age=60s (whole number with s, m, or h).
  * Exit 0: all checks pass. Exit 2: findings. Exit 1: malformed input or tool failure.
@@ -15,7 +16,8 @@ declare(strict_types=1);
 
 const DEFAULT_SVN = 'https://develop.svn.wordpress.org';
 const ROW         = "%-8s %-26s %-16s %-8s %-13s %-12s %s\n";
-const USAGE       = 'Usage: svn-tags.php (--generate BRANCHES | --verify [BRANCHES] [--file=path]) [--svn=URL] [--min-age=60s]' . "\n" . 'BRANCHES: --branches=X.Y,... or --branch-start=X.Y --branch-end=X.Y';
+const AUDIT_ROW   = "%-8s %-16s %-10s %-16s %-10s %-26s %s\n";
+const USAGE       = 'Usage: svn-tags.php (--generate BRANCHES | --verify [BRANCHES] [--file=path] | --audit [BRANCHES] [--file=path]) [--svn=URL] [--min-age=60s (generate/verify only)]' . "\n" . 'BRANCHES: --branches=X.Y,... or --branch-start=X.Y --branch-end=X.Y';
 
 function fail(string $message, int $code = 1): never {
 	fwrite(STDERR, $message . PHP_EOL);
@@ -294,22 +296,145 @@ function check_tags(array $entries, bool $generate, ?array $expected, string $sv
 	return array('code' => $code, 'stdout' => 0 === $code ? implode("\n", $commands) . "\n" : '', 'stderr' => $stderr);
 }
 
+function audit_tags(array $entries, ?array $expected, string $svn_url, ?callable $svn = null): array {
+	$rows = $findings = $forms = $message_forms = $branches = $tags = array();
+	$tool_error = false;
+	foreach ($entries as $entry) {
+		$branch = $entry['branch'];
+		$tag    = $entry['tag'];
+		$label  = "Line {$entry['line']} ({$branch})";
+		$issues = array();
+		$row    = array($branch, $tag, '-', '-', '-', '-', 'PASS');
+		if (isset($branches[$branch])) {
+			$issues[] = "{$label}: duplicate branch {$branch}.";
+		}
+		$branches[$branch] = true;
+		if (isset($tags[$tag])) {
+			$issues[] = "{$label}: duplicate tag {$tag}.";
+		}
+		$tags[$tag] = true;
+		try {
+			$output = svn_read(array('log', '--xml', '-v', '--stop-on-copy', "{$svn_url}/tags/{$tag}"), $svn, true);
+			if (null === $output) {
+				$issues[] = "{$label}: tag {$tag} does not exist.";
+			} else {
+				$log = simplexml_load_string($output, SimpleXMLElement::class, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+				if (false === $log || 'log' !== $log->getName() || 0 === count($log->logentry)) {
+					throw new RuntimeException('svn log returned no tag creation history.');
+				}
+				$revs = array();
+				foreach ($log->logentry as $item) {
+					if (1 !== preg_match('/^\d+$/D', (string) $item['revision'])) {
+						throw new RuntimeException('svn log returned an invalid revision.');
+					}
+					$revs[] = 'r' . $item['revision'];
+				}
+				$row[2] = array_pop($revs);
+				if ($revs) {
+					$issues[] = "{$label}: tag {$tag} changed after creation in " . implode(', ', $revs) . '.';
+				}
+				$created = $log->logentry[count($log->logentry) - 1];
+				$paths   = $created->xpath('paths/path');
+				if (1 !== count($paths)) {
+					$issues[] = "{$label}: tag {$tag} creation revision has " . count($paths) . ' paths; expected exactly one.';
+				}
+				$path   = $paths[0] ?? null;
+				$action = (string) ($path['action'] ?? '');
+				$source = (string) ($path['copyfrom-path'] ?? '');
+				$copy   = (string) ($path['copyfrom-rev'] ?? '');
+				if ('A' !== $action) {
+					$issues[] = "{$label}: tag {$tag} creation action '{$action}' is not A.";
+				}
+				if ("/tags/{$tag}" !== (string) $path) {
+					$issues[] = "{$label}: tag {$tag} creation path '{$path}' is not /tags/{$tag}.";
+				}
+				if ("/branches/{$branch}" !== $source) {
+					$issues[] = "{$label}: tag {$tag} source branch '{$source}' is not /branches/{$branch}.";
+				}
+				if ('' === $source || 1 !== preg_match('/^\d+$/D', $copy)) {
+					$issues[] = "{$label}: tag {$tag} has no copy source with a numeric revision.";
+				} else {
+					$row[3] = (str_starts_with($source, '/branches/') ? substr($source, 10) : $source) . '@' . $copy;
+				}
+				$message = rtrim((string) $created->msg);
+				if ($entry['message'] !== $message) {
+					$issues[] = "{$label}: tag {$tag} landed message '{$message}' differs from command message '{$entry['message']}'.";
+				}
+				$version = parse_wp_version(svn_read(array('cat', "{$svn_url}/tags/{$tag}/src/wp-includes/version.php@" . substr($row[2], 1)), $svn));
+				$row[5]  = $version;
+				if ($tag !== release_tag($version)) {
+					$issues[] = "{$label}: tag {$tag} differs from tag version '{$version}'.";
+				}
+				if ("/branches/{$branch}" === $source && 1 === preg_match('/^\d+$/D', $copy)) {
+					$last = parse_log(svn_read(array('log', '--xml', '-q', '-l', '1', "{$svn_url}/branches/{$branch}@{$copy}"), $svn));
+					$bump = parse_log(svn_read(array('log', '--xml', '-q', '-l', '1', "{$svn_url}/branches/{$branch}/src/wp-includes/version.php@{$copy}"), $svn));
+					$row[4] = 'r' . $bump['revision'];
+					if ($last['revision'] !== $bump['revision']) {
+						$issues[] = "{$label}: branches/{$branch} changed in r{$last['revision']} after the version bump r{$bump['revision']}, before the tag copy.";
+					}
+				}
+			}
+		} catch (Throwable $error) {
+			$tool_error = true;
+			$row[6]     = 'ERROR';
+			$issues[]   = "{$label}: {$error->getMessage()}";
+		}
+		$form = message_form($entry['message'], $tag);
+		$forms[] = "{$label}: message form " . ($form ?? 'unrecognized') . '.';
+		if (null === $form) {
+			$issues[] = "{$label}: message must name tag {$tag} as 'Tag {$tag}' or 'Tagging WordPress {$tag}.'";
+		} else {
+			$message_forms[$form] = true;
+		}
+		if ($issues && 'ERROR' !== $row[6]) {
+			$row[6] = 'FAIL';
+		}
+		$rows[] = $row;
+		$findings = array_merge($findings, $issues);
+	}
+	if (count($message_forms) > 1) {
+		$findings[] = 'List mixes message forms: Tag and Tagging WordPress.';
+	}
+	if (null !== $expected) {
+		$missing = array_diff($expected, array_keys($branches));
+		$extra   = array_diff(array_keys($branches), $expected);
+		if ($missing) {
+			$findings[] = 'Missing branches: ' . implode(', ', $missing) . '.';
+		}
+		if ($extra) {
+			$findings[] = 'Extra branches: ' . implode(', ', $extra) . '.';
+		}
+	}
+	$stderr = sprintf(AUDIT_ROW, 'Branch', 'Tag', 'Created', 'Copied from', 'Bump', 'Version read', 'Verdict');
+	foreach ($rows as $row) {
+		$stderr .= sprintf(AUDIT_ROW, ...$row);
+	}
+	foreach (array_merge($forms, $findings) as $detail) {
+		$stderr .= $detail . "\n";
+	}
+	$code = $tool_error ? 1 : ($findings ? 2 : 0);
+	$stderr .= 0 === $code ? 'PASS: ' . count($rows) . " tags audited.\n" : "FAIL: see findings above.\n";
+	return array('code' => $code, 'stdout' => '', 'stderr' => $stderr);
+}
+
 /** Injectable input and clock keep the complete CLI decision path testable offline. */
 function run(array $argv, ?callable $svn = null, ?string $input = null, ?int $now = null): array {
 	try {
 		$options = array('svn' => DEFAULT_SVN, 'min-age' => '60s');
 		$mode = null;
+		$age_given = false;
 		foreach (array_slice($argv, 1) as $arg) {
 			if ('--help' === $arg) {
 				return array('code' => 0, 'stdout' => USAGE . "\n", 'stderr' => '');
 			}
-			if (in_array($arg, array('--generate', '--verify'), true)) {
+			if (in_array($arg, array('--generate', '--verify', '--audit'), true)) {
 				if (null !== $mode) {
 					throw new InvalidArgumentException('Choose exactly one mode.');
 				}
 				$mode = $arg;
 			} elseif (1 === preg_match('/^--(branches|branch-start|branch-end|file|svn|min-age)=(.*)$/D', $arg, $match)) {
 				$options[$match[1]] = $match[2];
+				$age_given = $age_given || 'min-age' === $match[1];
 			} else {
 				throw new InvalidArgumentException("Unknown argument: {$arg}");
 			}
@@ -319,6 +444,9 @@ function run(array $argv, ?callable $svn = null, ?string $input = null, ?int $no
 			throw new InvalidArgumentException('Use --branch-start and --branch-end together, without --branches.');
 		}
 		$generate = '--generate' === $mode;
+		if ('--audit' === $mode && $age_given) {
+			throw new InvalidArgumentException('--min-age does not apply to --audit.');
+		}
 		if (null === $mode || ($generate && ((!isset($options['branches']) && !$ranged) || isset($options['file'])))) {
 			throw new InvalidArgumentException(USAGE);
 		}
@@ -354,6 +482,9 @@ function run(array $argv, ?callable $svn = null, ?string $input = null, ?int $no
 			if (!$entries) {
 				throw new InvalidArgumentException('Command list is empty.');
 			}
+		}
+		if ('--audit' === $mode) {
+			return audit_tags($entries, $expected, $svn_url, $svn);
 		}
 		return check_tags($entries, $generate, $expected, $svn_url, $min_age, $svn, $now);
 	} catch (Throwable $error) {
