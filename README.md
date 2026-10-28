@@ -12,7 +12,7 @@ This repo holds core WordPress release tooling that is not tied to a security em
 - `wp-profile-link-generator/`: takes a list of WordPress.org usernames and produces the linked contributor list for a minor release post, plus the updated credits array for the credits API.
 - `verify-tags-reached-mirror/`: checks that release tags on `core.svn` reached the `WordPress/WordPress` Git mirror. `--tags` polls for a release's tags as a gate; `--audit` checks every tag once.
 - `verify-localized-packages/`: checks that the core language pack and the localized zip exist for each locale after a release. Polls as a gate, and names the missing locales to report in #meta-i18n.
-- `svn-tags/`: generates or verifies release tag commands from SVN branch versions, checking for existing tags, unbumped versions, and recent commits before tagging.
+- `svn-tags/`: generates or verifies release tag commands from SVN branch versions, checking for existing tags, unbumped versions, and recent commits before tagging. Audits landed tags too.
 - `svnmergecheck/`: verifies that `svn merge --record-only` recorded every named trunk revision in `svn:mergeinfo` before you commit, and warns to commit the whole working copy rather than a path list.
 - `ghpatch/`: applies a GitHub pull request diff to a Subversion working copy with `svn patch`, so new files are scheduled for add, and fails loudly on a rejected hunk.
 

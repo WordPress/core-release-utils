@@ -9,9 +9,12 @@ php svn-tags.php --generate --branches=6.5,6.4,6.3
 php svn-tags.php --generate --branch-start=6.5 --branch-end=6.3
 php svn-tags.php --verify --branches=6.5,6.4,6.3 --file=commands.txt
 php svn-tags.php --verify < commands.txt
+php svn-tags.php --audit --branches=6.5,6.4,6.3 --file=commands.txt
+php svn-tags.php --audit --branch-start=6.5 --branch-end=6.3 --file=commands.txt
+php svn-tags.php --audit < commands.txt
 ```
 
-Options: `--branches=X.Y,...`, `--file=path` (verify only), `--svn=URL` (default `https://develop.svn.wordpress.org`), and `--min-age=60s`. Durations accept whole seconds or a number with `s`, `m`, or `h`.
+Options: `--branches=X.Y,...`, `--file=path` (verify or audit), `--svn=URL` (default `https://develop.svn.wordpress.org`), and `--min-age=60s`. Durations accept whole seconds or a number with `s`, `m`, or `h`.
 
 `--branch-start=X.Y --branch-end=X.Y` replaces `--branches` with every branch in between, inclusive and in start-to-end order. Ranges follow WordPress numbering, so `5.1` to `4.8` expands to `5.1,5.0,4.9,4.8`. Both bounds are required, `Y` must be a single digit, and ranges cannot be combined with `--branches`.
 
@@ -44,6 +47,23 @@ Exit 0 when all checks pass. Exit 2 for findings, including mixed message forms.
 An unbumped version prevents generation of a tag name; its existence cell shows `-`. Branch checks still report the version and last commit. List-wide findings appear below the table.
 
 These are point-in-time checks, not a repository lock. Branches or tags can change after checking. Rerun immediately before tagging; only the operator runs the copy commands. Relative `^/` paths are interpreted against `--svn` during verification and printed as absolute URLs, independent of the operator's working copy.
+
+## Audit
+
+After tagging, `--audit` reads the same command list from stdin or `--file`, with the same blank-line, comment, and path handling.
+
+- Requires each tag to exist with no changes after creation.
+- Requires the creation revision to add exactly one path: the expected tag, copied from the expected branch at a numeric revision.
+- Compares the landed message, after trimming trailing whitespace, with the command message exactly.
+- Reads the tag's `version.php` and requires its release version to match the tag.
+- Checks branch history at the copy revision: the branch's last change must be the version bump.
+- Reports message forms, mixed forms, duplicate branches and tags, and missing or extra branches against an optional branch list or range.
+
+The stderr table shows branch, tag, creation revision, copy source, bump revision, version read, and verdict. Unknown cells show `-`. Findings follow the table.
+
+Stdout always stays empty. The exit codes above also apply to audit: 0 for success, 2 for findings, and 1 for input or tool errors.
+
+Choose exactly one of `--generate`, `--verify`, or `--audit`. Explicit `--min-age` is rejected with audit because commit age does not apply.
 
 ## Requirements
 

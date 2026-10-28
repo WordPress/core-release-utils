@@ -60,6 +60,33 @@ function verify(string $input, ?callable $svn = null, array $options = array()):
 	return run(array_merge(array('svn-tags.php', '--verify'), $options), $svn ?? fake_svn(), $input, NOW);
 }
 
+function fake_audit(array $tags = array('6.5.12' => array()), string $url = DEFAULT_SVN): callable {
+	$reads = array();
+	foreach ($tags as $tag => $data) {
+		$data += array('branch' => '6.5', 'source' => '/branches/6.5', 'copy' => '1210', 'created' => '1211', 'last' => '1200', 'bump' => '1200', 'version' => $tag . '-src', 'message' => "Tag {$tag}", 'action' => 'A', 'path' => "/tags/{$tag}", 'extra' => '', 'later' => '');
+		$paths = '<path action="' . $data['action'] . '" copyfrom-path="' . $data['source'] . '" copyfrom-rev="' . $data['copy'] . '">' . $data['path'] . '</path>' . $data['extra'];
+		$log = $data['log'] ?? '<log>' . $data['later'] . '<logentry revision="' . $data['created'] . '"><paths>' . $paths . '</paths><msg>' . htmlspecialchars($data['message'], ENT_XML1) . '</msg></logentry></log>';
+		$reads["log --xml -v --stop-on-copy {$url}/tags/{$tag}"] = isset($data['missing'])
+			? array('code' => 1, 'stdout' => '', 'stderr' => "svn: E160013: File not found: revision 1211, path '/tags/{$tag}'")
+			: array('code' => 0, 'stdout' => $log, 'stderr' => '');
+		$reads["cat {$url}/tags/{$tag}/src/wp-includes/version.php@{$data['created']}"] = array('code' => 0, 'stdout' => version_body($data['version']), 'stderr' => '');
+		foreach (array('' => 'last', '/src/wp-includes/version.php' => 'bump') as $path => $key) {
+			$reads["log --xml -q -l 1 {$url}/branches/{$data['branch']}{$path}@{$data['copy']}"] = array('code' => 0, 'stdout' => '<log><logentry revision="' . $data[$key] . '"><date>2026-10-01T10:00:00Z</date></logentry></log>', 'stderr' => '');
+		}
+	}
+	return static function (array $args) use ($reads): array {
+		$key = implode(' ', $args);
+		if (!isset($reads[$key])) {
+			throw new RuntimeException('Unexpected audit read: ' . $key);
+		}
+		return $reads[$key];
+	};
+}
+
+function audit(string $input, ?callable $svn = null, array $options = array()): array {
+	return run(array_merge(array('svn-tags.php', '--audit'), $options), $svn ?? fake_audit(), $input);
+}
+
 // Version parsing never evaluates the PHP body.
 check('read src version exactly', '6.5.12-src', parse_wp_version(version_body('6.5.12-src')));
 check('strip src', '6.5.12', release_tag(parse_wp_version(version_body('6.5.12-src'))));
@@ -256,6 +283,120 @@ try {
 	}
 }
 check('missing file exits 1', 1, run(array('svn-tags.php', '--verify', '--file=' . $path), $no_reads, null, NOW)['code']);
+
+// Audit landed tags with a separate reader and pinned branch history.
+$result = audit($line);
+check('audit matching tag passes', 0, $result['code']);
+check('audit stdout stays empty on pass', '', $result['stdout']);
+check('audit pass summary', true, str_contains($result['stderr'], "PASS: 1 tags audited.\n"));
+check('audit table columns', true, str_contains($result['stderr'], sprintf(AUDIT_ROW, 'Branch', 'Tag', 'Created', 'Copied from', 'Bump', 'Version read', 'Verdict')));
+check('audit table values', true, str_contains($result['stderr'], sprintf(AUDIT_ROW, '6.5', '6.5.12', 'r1211', '6.5@1210', 'r1200', '6.5.12-src', 'PASS')));
+check('audit message form', true, str_contains($result['stderr'], 'Line 1 (6.5): message form Tag.'));
+$result = audit("# commands\n\n{$line}\n");
+check('audit ignores blanks and comments', 0, $result['code']);
+check('audit retains source line numbers', true, str_contains($result['stderr'], 'Line 3 (6.5): message form Tag.'));
+check('audit relative paths pass', 0, audit(str_replace(DEFAULT_SVN, '^', $line))['code']);
+check('audit relative paths use custom repository', 0, audit(str_replace(DEFAULT_SVN, '^', $line), fake_audit(array('6.5.12' => array()), 'https://example.test/svn'), array('--svn=https://example.test/svn/'))['code']);
+check('audit trims landed trailing whitespace', 0, audit($line, fake_audit(array('6.5.12' => array('message' => "Tag 6.5.12 \t\n"))))['code']);
+$cases = array(
+	'missing tag' => array(array('missing' => true), 'tag 6.5.12 does not exist.'),
+	'changed tag' => array(array('later' => '<logentry revision="1215"/><logentry revision="1214"/>'), 'tag 6.5.12 changed after creation in r1215, r1214.'),
+	'wrong branch' => array(array('source' => '/branches/6.4'), "source branch '/branches/6.4' is not /branches/6.5."),
+	'two paths' => array(array('extra' => '<path action="A" copyfrom-path="/branches/6.4" copyfrom-rev="1210">/tags/6.4.9</path>'), 'creation revision has 2 paths; expected exactly one.'),
+	'wrong action' => array(array('action' => 'M'), "creation action 'M' is not A."),
+	'wrong path' => array(array('path' => '/tags/6.5.13'), "creation path '/tags/6.5.13' is not /tags/6.5.12."),
+	'missing source' => array(array('source' => '', 'copy' => ''), 'has no copy source with a numeric revision.'),
+	'invalid copy revision' => array(array('copy' => 'unknown'), 'has no copy source with a numeric revision.'),
+	'wrong message' => array(array('message' => 'Tagging WordPress 6.5.12.'), "landed message 'Tagging WordPress 6.5.12.' differs from command message 'Tag 6.5.12'."),
+	'leading message whitespace' => array(array('message' => ' Tag 6.5.12'), "landed message ' Tag 6.5.12' differs"),
+	'wrong version' => array(array('version' => '6.5.13-src'), "tag 6.5.12 differs from tag version '6.5.13-src'."),
+	'unbumped version' => array(array('version' => '6.5.12-alpha-src'), "tag 6.5.12 differs from tag version '6.5.12-alpha-src'."),
+	'change after bump' => array(array('last' => '1205'), 'branches/6.5 changed in r1205 after the version bump r1200, before the tag copy.'),
+);
+foreach ($cases as $name => [$data, $finding]) {
+	$result = audit($line, fake_audit(array('6.5.12' => $data)));
+	check("audit {$name} exits 2", 2, $result['code']);
+	check("audit {$name} finding", true, str_contains($result['stderr'], $finding));
+	check("audit {$name} has no stdout", '', $result['stdout']);
+	check("audit {$name} fail summary", true, str_ends_with($result['stderr'], "FAIL: see findings above.\n"));
+}
+$result = audit($line, fake_audit(array('6.5.12' => array('missing' => true))));
+check('audit missing tag has unknown cells and FAIL row', true, str_contains($result['stderr'], sprintf(AUDIT_ROW, '6.5', '6.5.12', '-', '-', '-', '-', 'FAIL')));
+$result = audit($line, fake_audit(array('6.5.12' => array('source' => '/branches/6.4'))));
+check('audit wrong branch skips the bump check', true, str_contains($result['stderr'], sprintf(AUDIT_ROW, '6.5', '6.5.12', 'r1211', '6.4@1210', '-', '6.5.12-src', 'FAIL')));
+$result = audit($line, fake_audit(array('6.5.12' => array('later' => '<logentry revision="1215"/>'))));
+check('audit uses oldest entry for creation', true, str_contains($result['stderr'], sprintf(AUDIT_ROW, '6.5', '6.5.12', 'r1211', '6.5@1210', 'r1200', '6.5.12-src', 'FAIL')));
+$second = command_line(DEFAULT_SVN, '6.4', '6.4.9', 'Tagging WordPress 6.4.9.');
+$reader = fake_audit(array('6.5.12' => array(), '6.4.9' => array('branch' => '6.4', 'source' => '/branches/6.4', 'message' => 'Tagging WordPress 6.4.9.')));
+$result = audit($line . "\n" . $second, $reader);
+check('audit mixed forms fail', 2, $result['code']);
+check('audit mixed forms finding', true, str_contains($result['stderr'], 'List mixes message forms: Tag and Tagging WordPress.'));
+check('audit second form reported', true, str_contains($result['stderr'], 'Line 2 (6.4): message form Tagging WordPress.'));
+$result = audit(str_replace('Tag 6.5.12', 'release', $line), fake_audit(array('6.5.12' => array('message' => 'release'))));
+check('audit unrecognized form fails', 2, $result['code']);
+check('audit unrecognized form reported', true, str_contains($result['stderr'], 'message form unrecognized.'));
+check('audit unrecognized form finding', true, str_contains($result['stderr'], "message must name tag 6.5.12 as 'Tag 6.5.12' or 'Tagging WordPress 6.5.12.'"));
+$result = audit($line . "\n" . $line);
+check('audit duplicates fail', 2, $result['code']);
+check('audit duplicate branch finding', true, str_contains($result['stderr'], 'Line 2 (6.5): duplicate branch 6.5.'));
+check('audit duplicate tag finding', true, str_contains($result['stderr'], 'Line 2 (6.5): duplicate tag 6.5.12.'));
+$result = audit($line, null, array('--branches=6.4'));
+check('audit branch set mismatch fails', 2, $result['code']);
+check('audit missing branch finding', true, str_contains($result['stderr'], 'Missing branches: 6.4.'));
+check('audit extra branch finding', true, str_contains($result['stderr'], 'Extra branches: 6.5.'));
+check('audit matching branch set passes', 0, audit($line, null, array('--branches=6.5'))['code']);
+$result = audit($line, null, array('--branch-start=6.5', '--branch-end=6.4'));
+check('audit range mismatch fails', 2, $result['code']);
+check('audit range missing branch finding', true, str_contains($result['stderr'], 'Missing branches: 6.4.'));
+check('audit matching range passes', 0, audit($line, null, array('--branch-start=6.5', '--branch-end=6.5'))['code']);
+foreach (array('--verify', '--generate', '--audit') as $mode) {
+	$result = audit($line, $no_reads, array($mode));
+	check('audit rejects mode ' . $mode, 1, $result['code']);
+	check('audit conflicting modes diagnostic', true, str_contains($result['stderr'], 'Choose exactly one mode.'));
+}
+foreach (array('60s', '0', 'bad') as $age) {
+	$result = audit($line, $no_reads, array('--min-age=' . $age));
+	check('audit rejects explicit age ' . $age, 1, $result['code']);
+	check('audit age diagnostic', true, str_contains($result['stderr'], '--min-age does not apply to --audit.'));
+}
+foreach (array('history', 'version', 'branch', 'bump') as $stage) {
+	$reader = static function (array $args) use ($stage, $broken): array {
+		$url = $args[count($args) - 1];
+		$current = 'cat' === $args[0] ? 'version' : (in_array('--stop-on-copy', $args, true) ? 'history' : (str_contains($url, '/version.php@') ? 'bump' : 'branch'));
+		return $stage === $current ? $broken($args) : fake_audit()($args);
+	};
+	$result = audit($line, $reader);
+	check("audit {$stage} read failure exits 1", 1, $result['code']);
+	check("audit {$stage} read failure ERROR row", true, str_contains($result['stderr'], 'ERROR'));
+	check("audit {$stage} read failure diagnostic", true, str_contains($result['stderr'], 'Authentication failed'));
+	check("audit {$stage} read failure empty stdout", '', $result['stdout']);
+}
+foreach (array('<log><logentry', '<log/>', '<other/>', '<log><logentry revision="bad"/></log>') as $xml) {
+	$result = audit($line, fake_audit(array('6.5.12' => array('log' => $xml))));
+	check('audit invalid history exits 1', 1, $result['code']);
+	check('audit invalid history ERROR row', true, str_contains($result['stderr'], 'ERROR'));
+	check('audit invalid history empty stdout', '', $result['stdout']);
+}
+$result = audit($line . "\n" . $second, fake_audit(array('6.5.12' => array('log' => '<log>'), '6.4.9' => array('missing' => true))));
+check('audit tool error takes precedence over findings', 1, $result['code']);
+check('audit continues after a row error', true, str_contains($result['stderr'], 'Line 2 (6.4): tag 6.4.9 does not exist.'));
+$result = audit("# commands\n{$line}\nnot a command", $no_reads);
+check('audit malformed command exits 1', 1, $result['code']);
+check('audit malformed command line number', true, str_contains($result['stderr'], 'Line 3: Expected svn cp'));
+$result = audit("\n# none", $no_reads);
+check('audit empty list exits 1', 1, $result['code']);
+check('audit empty list diagnostic', "Command list is empty.\n", $result['stderr']);
+try {
+	file_put_contents($path, $line . "\n");
+	$result = run(array('svn-tags.php', '--audit', '--file=' . $path), fake_audit());
+	check('audit file input passes', 0, $result['code']);
+	check('audit file input empty stdout', '', $result['stdout']);
+} finally {
+	if (is_file($path)) {
+		unlink($path);
+	}
+}
+check('audit missing file exits 1', 1, run(array('svn-tags.php', '--audit', '--file=' . $path), $no_reads)['code']);
 
 if ($failures) {
 	foreach ($failures as $failure) {
