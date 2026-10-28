@@ -15,14 +15,14 @@ require_once __DIR__ . '/lib/preview-helphub-version-pages-lib.php';
 function helphub_preview_usage(string $script): never {
 	fail(
 		"Usage: {$script} --release=<X.Y.Z> --manifest=<helphub-manifest-X.Y.Z.json> --checkout=<path> "
-		. '[--release-remote=<url>] [--check-published] [--verbose] [--help]'
+		. '[--release-remote=<url>] [--verbose] [--help]'
 	);
 }
 
-$options = cli_options($argv, array('release:', 'manifest:', 'checkout:', 'release-remote:', 'check-published', 'verbose', 'help'));
+$options = cli_options($argv, array('release:', 'manifest:', 'checkout:', 'release-remote:', 'verbose', 'help'));
 if (isset($options['help'])) {
 	echo "Usage: {$argv[0]} --release=<X.Y.Z> --manifest=<helphub-manifest-X.Y.Z.json> --checkout=<path> "
-		. "[--release-remote=<url>] [--check-published] [--verbose] [--help]\n";
+		. "[--release-remote=<url>] [--verbose] [--help]\n";
 	exit(0);
 }
 set_verbose(isset($options['verbose']));
@@ -158,21 +158,6 @@ try {
 		echo "\nCredit lines still to write, for fix(es): " . implode(', ', $numbers) . "\n";
 		echo "Draft their descriptions with draft-helphub-credits.php, then write\n";
 		echo "each attribution. No page can be finished until every one is authored.\n";
-	}
-
-	if (isset($options['check-published'])) {
-		verbose_log('Asking wordpress.org which pages exist');
-		$published = helphub_published_pages($candidates, 'helphub_page_exists');
-		$missing   = array();
-		$present   = array();
-		foreach ($published as $version => $exists) {
-			$exists ? $present[] = $version : $missing[] = $version;
-		}
-		echo "\nPublished pages\n";
-		echo '  exist:   ' . ($present ? implode(', ', $present) : 'none') . "\n";
-		echo '  missing: ' . ($missing ? implode(', ', $missing) : 'none') . "\n";
-		echo "  A version that shipped without a page is the failure this catches.\n";
-		echo "  Before release every page is missing, and that is expected.\n";
 	}
 
 	if ($unverified) {
