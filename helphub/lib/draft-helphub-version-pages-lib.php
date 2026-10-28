@@ -4,6 +4,22 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/helphub-manifest-lib.php';
 
+function helphub_draft_notes(array $notes): array {
+	$validated = array();
+	foreach ($notes as $note) {
+		$note = trim($note);
+		if ('' === $note) {
+			throw new InvalidArgumentException('--note requires non-empty text.');
+		}
+		if (in_array($note, $validated, true)) {
+			throw new InvalidArgumentException("Duplicate --note: {$note}");
+		}
+		$validated[] = $note;
+	}
+
+	return $validated;
+}
+
 /**
  * Page assembly for draft-helphub-version-pages.php.
  *
@@ -514,8 +530,10 @@ function helphub_draft_page(
 	array $release_paths = array(),
 	array $packages = array(),
 	array $issues = array(),
-	?array $entries = null
+	?array $entries = null,
+	array $notes = array()
 ): array {
+	$notes   = helphub_draft_notes($notes);
 	$entries = $entries ?? helphub_manifest_entries($fixes, $issues);
 	$line    = helphub_draft_line($version);
 	$credit  = helphub_credit_lines($fixes, $credits, $line, $issues, $entries);
@@ -536,7 +554,10 @@ function helphub_draft_page(
 	$out[] = '';
 	$out[] = helphub_list(array_map(
 		static fn(string $bullet): string => "<li>{$bullet}</li>",
-		$credit['bullets']
+		array_merge($credit['bullets'], array_map(
+			static fn(string $note): string => htmlspecialchars($note, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+			$notes
+		))
 	));
 
 	if ($is_lead && 1 < count($versions)) {

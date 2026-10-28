@@ -18,7 +18,7 @@ require_once __DIR__ . '/lib/check-helphub-credits-lib.php';
 function helphub_credits_usage(string $script): never {
 	fail(
 		"Usage: {$script} --release=<X.Y.Z> --manifest=<helphub-manifest-X.Y.Z.json> [--site=<url>] [--user=<login>] "
-		. '[--only=<X.Y.Z>] [--news-post=<URL or file>] [--verbose] [--help]'
+		. '[--only=<X.Y.Z>] [--news-post=<URL or file>] [--note=<text>]... [--verbose] [--help]'
 		. "\n\nHelpHub mode reads the application password from the HELPHUB_APP_PASSWORD environment variable."
 	);
 }
@@ -106,11 +106,13 @@ function helphub_credits_fetch_pages(string $site): array {
 }
 
 $options = cli_options($argv, array(
-	'release:', 'manifest:', 'site:', 'user:', 'only:', 'news-post:', 'verbose', 'help',
+	'release:', 'manifest:', 'site:', 'user:', 'only:', 'news-post:', 'note:', 'verbose', 'help',
 ));
 if (isset($options['help'])) {
 	echo "Usage: {$argv[0]} --release=<X.Y.Z> --manifest=<helphub-manifest-X.Y.Z.json> [--site=<url>] [--user=<login>] "
-		. "[--only=<X.Y.Z>] [--news-post=<URL or file>] [--verbose] [--help]\n"
+		. "[--only=<X.Y.Z>] [--news-post=<URL or file>] [--note=<text>]... [--verbose] [--help]\n"
+		. "\nWith --news-post, repeat --note to recognize non-fix security bullets as NOTE; absent notes are MISSING.\n"
+		. "Example: --news-post=example-post.html --note=\"An update to the example widget library.\"\n"
 		. "\nHelpHub mode reads the application password from the HELPHUB_APP_PASSWORD environment variable.\n";
 	exit(0);
 }
@@ -136,7 +138,7 @@ try {
 		fail($option_error['message'], $option_error['code']);
 	}
 	if ($news_post) {
-		exit(helphub_credits_check_news($manifest, helphub_credits_read_news($options['news-post'])));
+		exit(helphub_credits_check_news($manifest, helphub_credits_read_news($options['news-post']), (array) ($options['note'] ?? array())));
 	}
 
 	$user     = isset($options['user']) && is_string($options['user']) && '' !== $options['user'] ? $options['user'] : null;
