@@ -14,14 +14,16 @@ require_once __DIR__ . '/lib/draft-helphub-version-pages-lib.php';
 function helphub_draft_usage(string $script): never {
 	fail(
 		"Usage: {$script} --release=<X.Y.Z> --manifest=<helphub-manifest-X.Y.Z.json> --checkout=<path> "
-		. '--versions=<X.Y.Z,...> --date=<YYYY-MM-DD> --out=<dir> [--security-issues=N] [--verbose] [--help]'
+		. '--versions=<X.Y.Z,...> --date=<YYYY-MM-DD> --out=<dir> [--security-issues=N] [--note=<text>]... [--verbose] [--help]'
 	);
 }
 
-$options = cli_options($argv, array('release:', 'manifest:', 'checkout:', 'versions:', 'date:', 'out:', 'security-issues:', 'verbose', 'help'));
+$options = cli_options($argv, array('release:', 'manifest:', 'checkout:', 'versions:', 'date:', 'out:', 'security-issues:', 'note:', 'verbose', 'help'));
 if (isset($options['help'])) {
 	echo "Usage: {$argv[0]} --release=<X.Y.Z> --manifest=<helphub-manifest-X.Y.Z.json> --checkout=<path> "
-		. "--versions=<X.Y.Z,...> --date=<YYYY-MM-DD> --out=<dir> [--security-issues=N] [--verbose] [--help]\n";
+		. "--versions=<X.Y.Z,...> --date=<YYYY-MM-DD> --out=<dir> [--security-issues=N] [--note=<text>]... [--verbose] [--help]\n"
+		. "\nRepeat --note to append non-fix security bullets to every page without changing vulnerability counts.\n"
+		. "Empty or duplicate notes are refused. Example: --note=\"An update to the example widget library.\"\n";
 	exit(0);
 }
 set_verbose(isset($options['verbose']));
@@ -32,6 +34,7 @@ foreach (array('release', 'manifest', 'checkout', 'versions', 'date', 'out') as 
 }
 
 try {
+	$security_notes = helphub_draft_notes((array) ($options['note'] ?? array()));
 	verbose_log('Starting HelpHub version page draft');
 	$manifest_json = @file_get_contents($options['manifest']);
 	if (false === $manifest_json) {
@@ -123,7 +126,8 @@ try {
 			$release_paths,
 			$packages,
 			$manifest['issues'] ?? array(),
-			$entries
+			$entries,
+			$security_notes
 		);
 
 		$path = rtrim($out_dir, '/') . "/{$version}.txt";

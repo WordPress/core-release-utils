@@ -232,6 +232,14 @@ function helphub_credits_wave_stray(array $pages, array $wave, string $line, ?st
 }
 
 function helphub_credits_news_option_error(array $options, ?array $manifest = null): ?array {
+	if (array_key_exists('note', $options) && !array_key_exists('news-post', $options)) {
+		return array('message' => '--note requires --news-post.', 'code' => 1);
+	}
+	foreach ((array) ($options['note'] ?? array()) as $note) {
+		if (null !== helphub_credits_reporter(' ' . helphub_credits_normalize_line((string) $note))) {
+			return array('message' => "--note names a reporter, so it is a fix credit, not a note: {$note}", 'code' => 1);
+		}
+	}
 	foreach (array('release', 'manifest') as $required) {
 		if (!isset($options[$required]) || !is_string($options[$required]) || '' === $options[$required]) {
 			return array('message' => null, 'code' => 1);
@@ -365,10 +373,14 @@ function helphub_credits_news_security_section(string $post, array &$bullets = a
 		}
 	} else {
 		preg_match_all('/^(?:[-*+•]|\d+[.)]) (.*)$/mu', $section, $matches);
-		$bullets = array_map(static fn(string $bullet): string => helphub_credits_normalize_line(preg_replace('/\[([^\]]*)\]\((?:[^()\s]|\([^()\s]*\))*(?:\s+"[^"]*"|\s+\'[^\']*\')?\)/', '$1', $bullet) ?? $bullet), $matches[1]);
+		$bullets = array_map(static fn(string $bullet): string => helphub_credits_normalize_line(helphub_credits_strip_markdown_links($bullet)), $matches[1]);
 	}
 
 	return helphub_credits_normalize_line($section);
+}
+
+function helphub_credits_strip_markdown_links(string $text): string {
+	return preg_replace('/\[([^\]]*)\]\((?:[^()\s]|\([^()\s]*\))*(?:\s+"[^"]*"|\s+\'[^\']*\')?\)/', '$1', $text) ?? $text;
 }
 
 function helphub_credits_reporter(string $credit): ?string {
@@ -380,12 +392,13 @@ function helphub_credits_reporter_short(string $reporter): string {
 	return preg_replace('/ (?:\([^()]*\)|of (?:(?! and )[^,&])+)\z/i', '', $reporter) ?? $reporter;
 }
 
-function helphub_credits_check_news(array $manifest, string $post): int {
+function helphub_credits_check_news(array $manifest, string $post, array $notes = array()): int {
 	$text     = helphub_credits_normalize_line($post);
 	$bullets  = array();
 	$security = helphub_credits_news_security_section($post, $bullets);
 	$reporters = array();
-	$counts = array('PASS' => 0, 'MISSING' => 0, 'UNCHECKED' => 0, 'SKIPPED' => 0, 'UNMATCHED' => 0);
+	$counts = array('PASS' => 0, 'MISSING' => 0, 'UNCHECKED' => 0, 'SKIPPED' => 0, 'NOTE' => 0, 'UNMATCHED' => 0);
+	$pending_notes = array_map(static fn(string $note): string => mb_strtolower(helphub_credits_normalize_line(helphub_credits_strip_markdown_links($note)), 'UTF-8'), $notes);
 	$rows   = array();
 	foreach ($manifest['credits'] as $number => $credit) {
 		$reporter = helphub_credits_reporter(helphub_credits_normalize_line($credit));
@@ -424,6 +437,14 @@ function helphub_credits_check_news(array $manifest, string $post): int {
 		$counts[$status]++;
 	}
 	foreach ($bullets as $index => $bullet) {
+		$number = $index + 1;
+		$note_index = array_search(mb_strtolower($bullet, 'UTF-8'), $pending_notes, true);
+		if (false !== $note_index) {
+			echo "  Post bullet {$number}: NOTE ({$bullet})\n";
+			$counts['NOTE']++;
+			unset($pending_notes[$note_index]);
+			continue;
+		}
 		$tail = helphub_credits_reporter(' ' . $bullet);
 		$found = false;
 		$detail = null === $tail
@@ -440,12 +461,15 @@ function helphub_credits_check_news(array $manifest, string $post): int {
 			}
 		}
 		$status = $found ? 'PASS' : 'UNMATCHED';
-		$number = $index + 1;
 		echo "  Post bullet {$number} reporter: {$status} ({$detail})\n";
 		$counts[$status]++;
 	}
-	printf("\n%d check(s): %d PASS, %d MISSING, %d UNCHECKED, %d SKIPPED, %d UNMATCHED.\n",
-		count($rows) + count($bullets), $counts['PASS'], $counts['MISSING'], $counts['UNCHECKED'], $counts['SKIPPED'], $counts['UNMATCHED']);
+	foreach ($pending_notes as $index => $normalized) {
+		echo "  Note: MISSING ({$notes[$index]})\n";
+		$counts['MISSING']++;
+	}
+	printf("\n%d check(s): %d PASS, %d MISSING, %d UNCHECKED, %d SKIPPED, %d NOTE, %d UNMATCHED.\n",
+		array_sum($counts), $counts['PASS'], $counts['MISSING'], $counts['UNCHECKED'], $counts['SKIPPED'], $counts['NOTE'], $counts['UNMATCHED']);
 
 	return $counts['MISSING'] || $counts['UNMATCHED'] ? 2 : 0;
 }

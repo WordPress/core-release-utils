@@ -410,7 +410,7 @@ foreach ($news_cases as $label => [$credit, $post, $advisory, $code, $output]) {
 	check("News: {$label} output", true, str_contains($result_output, 'Fix #1332 ' . $output));
 	check("News: {$label} summary", true, str_contains($result_output, (str_contains($post, '<li>') ? '4' : '3') . ' check(s):'));
 }
-check('News: summary counts', true, str_contains($result_output, '3 check(s): 1 PASS, 0 MISSING, 0 UNCHECKED, 2 SKIPPED, 0 UNMATCHED.'));
+check('News: summary counts', true, str_contains($result_output, '3 check(s): 1 PASS, 0 MISSING, 0 UNCHECKED, 2 SKIPPED, 0 NOTE, 0 UNMATCHED.'));
 
 $bullet_cases = array(
 	'HTML list matches every credit' => array(
@@ -580,6 +580,60 @@ foreach ($bullet_cases as $label => [$names, $body, $code, $expected]) {
 			strpos($bullet_output, 'advisory: SKIPPED') < strpos($bullet_output, $expected_rows[0]));
 	}
 }
+
+$note_manifest = array(
+	'release' => '99.8.7',
+	'credits' => array(99001 => 'Example issue reported by Ann Example.'),
+	'advisories' => array(99001 => null),
+);
+$note_text = 'An update to the example widget library.';
+$note_post = "Security updates\n- Example issue reported by Ann Example.\n- {$note_text}";
+$note_cases = array(
+	'Extra bullet recognized' => array($note_post, array($note_text), 0,
+		array("Post bullet 2: NOTE ({$note_text})", '4 check(s): 2 PASS, 0 MISSING, 0 UNCHECKED, 1 SKIPPED, 1 NOTE, 0 UNMATCHED.')),
+	'Extra bullet without note' => array($note_post, array(), 2,
+		array('Post bullet 2 reporter: UNMATCHED', '0 NOTE, 1 UNMATCHED.')),
+	'Absent note' => array("Security updates\n- Example issue reported by Ann Example.", array($note_text), 2,
+		array("Note: MISSING ({$note_text})", '4 check(s): 2 PASS, 1 MISSING, 0 UNCHECKED, 1 SKIPPED, 0 NOTE, 0 UNMATCHED.')),
+	'One note covers one bullet' => array($note_post . "\n- {$note_text}", array($note_text), 2,
+		array("Post bullet 2: NOTE ({$note_text})", 'Post bullet 3 reporter: UNMATCHED', '1 NOTE, 1 UNMATCHED.')),
+	'Two notes match independently' => array($note_post . "\n- An example package update.", array('An example package update.', $note_text), 0,
+		array("Post bullet 2: NOTE ({$note_text})", 'Post bullet 3: NOTE (An example package update.)', '2 NOTE, 0 UNMATCHED.')),
+	'HTML note normalization' => array(
+		'<h2>Security updates included in this release</h2><ul><li>Example issue reported by Ann Example.</li><li>An <em>ÉXAMPLE</em>&nbsp;update &amp; “widget”—package.</li></ul>',
+		array('an éxample  update & "widget"-package.'), 0,
+		array('Post bullet 2: NOTE (An ÉXAMPLE update & "widget"-package.)', '1 NOTE, 0 UNMATCHED.')),
+	'Note requires the whole bullet' => array($note_post, array('example widget library'), 2,
+		array('Post bullet 2 reporter: UNMATCHED', 'Note: MISSING (example widget library)', '1 MISSING')),
+	'Note outside security section is missing' => array(
+		"Security updates\n- Example issue reported by Ann Example.\n## Other updates\n- {$note_text}", array($note_text), 2,
+		array("Note: MISSING ({$note_text})", '0 NOTE, 0 UNMATCHED.')),
+	'Markdown link in bullet and note' => array(
+		"Security updates\n- Example issue reported by Ann Example.\n- An update to the [example widget](https://example.com/widget) library.",
+		array('An update to the [example widget](https://example.com/widget) library.'), 0,
+		array("Post bullet 2: NOTE ({$note_text})", '1 NOTE, 0 UNMATCHED.')),
+	'Missing security section leaves note missing' => array('Example announcement.', array($note_text), 2,
+		array("Note: MISSING ({$note_text})", '2 MISSING')),
+);
+foreach ($note_cases as $label => [$body, $notes, $expected_code, $expected_output]) {
+	ob_start();
+	try {
+		$note_code = helphub_credits_check_news($note_manifest, $body, $notes);
+	} finally {
+		$note_output = ob_get_clean();
+	}
+	check("News notes: {$label} exit", $expected_code, $note_code);
+	foreach ($expected_output as $expected) {
+		check("News notes: {$label}: {$expected}", true, str_contains($note_output, $expected));
+	}
+}
+$note_options = array('release' => '99.8.7', 'manifest' => 'example-manifest.json', 'note' => $note_text);
+check('News notes require news-post', array('message' => '--note requires --news-post.', 'code' => 1),
+	helphub_credits_news_option_error($note_options));
+check('News notes accept news-post', null,
+	helphub_credits_news_option_error($note_options + array('news-post' => 'example-post.html')));
+check('News notes refuse a reporter credit', 1,
+	helphub_credits_news_option_error(array('note' => 'Example issue reported by Ann Example.', 'news-post' => 'example-post.html') + $note_options)['code'] ?? null);
 
 $news_options = array('release' => '7.1.2', 'manifest' => 'manifest.json', 'news-post' => 'post.html');
 check('News: valid options', null, helphub_credits_news_option_error($news_options));
@@ -793,6 +847,45 @@ $legacy_page = helphub_draft_page('9.9.1', '2000-01-01', array('src/example.php'
 check('Absent issues preserves original page bytes', '831cd7e4f03cd760c1812af83d33bd81946f0bfa3a80573c8c40b30a8503c459', hash('sha256', $legacy_page['body']));
 check('Empty issues map preserves original page', $legacy_page, helphub_draft_page('9.9.1', '2000-01-01', array('src/example.php'),
 	$issue_fixes, $issue_credits, $issue_versions, $issue_targets, array(), array(), array()));
+$draft_note = 'An update to the example widget library.';
+$draft_notes_options = parse_cli_options(array('draft', '--note=' . $draft_note, '--note=An example package update.'), array('note:'));
+check('Repeated notes preserve argument order', array($draft_note, 'An example package update.'), $draft_notes_options['note']);
+check('Single note becomes one item', array($draft_note), helphub_draft_notes((array) parse_cli_options(
+	array('draft', '--note=' . $draft_note), array('note:'))['note']));
+check('Draft notes trim surrounding whitespace', array($draft_note), helphub_draft_notes(array("  {$draft_note}\n")));
+foreach (array(array(''), array(" \t\n"), array($draft_note, $draft_note), array($draft_note, " {$draft_note} ")) as $invalid_notes) {
+	check_throws('Draft refuses empty or duplicate notes: ' . json_encode($invalid_notes), InvalidArgumentException::class,
+		static fn() => helphub_draft_notes($invalid_notes));
+}
+$draft_note_sets = array(
+	array(),
+	array($draft_note),
+	array($draft_note, 'An example package update.'),
+	array('<script>"Example" & \'sample\'</script>'),
+);
+$escaped_note_sets = array(
+	array(),
+	array($draft_note),
+	array($draft_note, 'An example package update.'),
+	array('&lt;script&gt;&quot;Example&quot; &amp; &#039;sample&#039;&lt;/script&gt;'),
+);
+foreach ($issue_versions as $version) {
+	$baseline = helphub_draft_page($version, '2000-01-01', array('src/example.php'), $issue_fixes,
+		$issue_credits, $issue_versions, $issue_targets, array(), array(), $issues, $issue_entries);
+	$credit_items = array_map(static fn(string $credit): string => "<li>{$credit}</li>",
+		helphub_credit_lines($issue_fixes, $issue_credits, helphub_draft_line($version), $issues, $issue_entries)['bullets']);
+	foreach ($draft_note_sets as $index => $notes) {
+		$with_notes = helphub_draft_page($version, '2000-01-01', array('src/example.php'), $issue_fixes,
+			$issue_credits, $issue_versions, $issue_targets, array(), array(), $issues, $issue_entries, $notes);
+		$expected_items = array_merge($credit_items,
+			array_map(static fn(string $note): string => "<li>{$note}</li>", $escaped_note_sets[$index]));
+		check("Draft {$version} note set {$index} changes only the security list", str_replace(
+			helphub_list($credit_items), helphub_list($expected_items), $baseline['body']), $with_notes['body']);
+		check("Draft {$version} note set {$index} preserves missing credits", $baseline['missing_credits'], $with_notes['missing_credits']);
+	}
+}
+check('Notes leave announced vulnerability count unchanged', null, helphub_security_issues_check($issue_entries, '4'));
+
 check('Absent issues still counts fixes', 3, helphub_fix_count($issue_fixes));
 check('Checker pairs lead credits after skipping joined fix', array('lines' => array_values($issue_credits), 'fill_ins' => array()),
 	helphub_credits_expected_lines($issue_fixes, $issue_credits, '9.8', $issues));

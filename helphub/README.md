@@ -99,6 +99,16 @@ Use `--security-issues=N` to check the release lead's announced issue count.
 `N` must be a positive integer. A mismatch exits 2 before writing any page.
 Add missing issues in the source scope, then export the manifest again.
 
+Repeat `--note=<text>` to append escaped non-fix bullets after credits on every draft without changing vulnerability counts or courtesy text.
+Empty or duplicate notes are refused.
+
+```sh
+php helphub/draft-helphub-version-pages.php \
+  --release=99.8.7 --manifest=example-manifest.json --checkout=example-checkout \
+  --versions=99.8.7,99.7.8 --date=2000-01-01 --out=example-drafts \
+  --note="An update to the example widget library."
+```
+
 ### Issues
 
 Manifest format 1 accepts an optional `issues` object alongside `credits` and
@@ -272,6 +282,15 @@ Each security-section bullet must name a manifest reporter, and no reporter may
 have more bullets than manifest credits. An unmatched bullet, including one
 without "reported by", is UNMATCHED and exits 2. This cannot detect a stale bullet
 that replaces a current one for the same reporter, so a human still reads the bullets.
+
+With `--news-post`, repeat `--note=<text>` to recognize each non-fix security bullet as NOTE once, using normalized, case-insensitive matching.
+An absent note is MISSING and exits 2; `--note` without `--news-post` is refused.
+
+```sh
+php helphub/check-helphub-credits.php \
+  --release=99.8.7 --manifest=example-manifest.json --news-post=example-post.html \
+  --note="An update to the example widget library."
+```
 
 ## Checking HelpHub version pages
 
