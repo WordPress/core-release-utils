@@ -16,7 +16,7 @@ declare(strict_types=1);
 
 const DEFAULT_SVN = 'https://develop.svn.wordpress.org';
 const ROW         = "%-8s %-26s %-16s %-8s %-13s %-12s %s\n";
-const AUDIT_ROW   = "%-8s %-16s %-10s %-16s %-10s %-26s %s\n";
+const AUDIT_ROW   = "%-8s %-16s %-10s %-16s %-10s %-26s %-10s %s\n";
 const USAGE       = 'Usage: svn-tags.php (--generate BRANCHES | --verify [BRANCHES] [--file=path] | --audit [BRANCHES] [--file=path]) [--svn=URL] [--min-age=60s (generate/verify only)]' . "\n" . 'BRANCHES: --branches=X.Y,... or --branch-start=X.Y --branch-end=X.Y';
 
 function fail(string $message, int $code = 1): never {
@@ -138,7 +138,7 @@ function missing_path(string $stderr): bool {
 	preg_match_all('/^svn: (?:warning: )?[EW](\d{6}):[^\r\n]*/m', $stderr, $codes);
 	return (bool) $codes[1]
 		&& !array_diff($codes[1], array('160013', '170000', '200009'))
-		&& 1 === preg_match('/^svn: (?:warning: )?(?:W170000:[^\r\n]*non-existent|E160013:[^\r\n]*(?:not found|does not exist))/m', $stderr);
+		&& 1 === preg_match('/^svn: (?:warning: )?(?:W170000:[^\r\n]*non-existent|[EW]160013:[^\r\n]*(?:not found|does not exist))/m', $stderr);
 }
 
 /** @return array{code:int,stdout:string,stderr:string} */
@@ -296,6 +296,112 @@ function check_tags(array $entries, bool $generate, ?array $expected, string $sv
 	return array('code' => $code, 'stdout' => 0 === $code ? implode("\n", $commands) . "\n" : '', 'stderr' => $stderr);
 }
 
+function audit_post_bump(string $branch, string $tag, string $copy, string $label, string $svn_url, ?callable $svn = null): array {
+	$start  = (int) $copy + 1;
+	$output = svn_read(array('log', '--xml', '-v', '-r', "{$start}:HEAD", '-l', '1', "{$svn_url}/branches/{$branch}"), $svn);
+	$log    = simplexml_load_string($output, SimpleXMLElement::class, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+	if (false === $log || 'log' !== $log->getName() || count($log->logentry) > 1) {
+		throw new RuntimeException('svn log returned invalid post-release branch history.');
+	}
+	if (0 === count($log->logentry)) {
+		return array('none', array());
+	}
+	$revision = (string) $log->logentry['revision'];
+	if (1 !== preg_match('/^\d+$/D', $revision) || (int) $revision < $start) {
+		throw new RuntimeException('svn log returned an invalid post-release revision.');
+	}
+	$paths = array();
+	foreach ($log->logentry->xpath('paths/path') as $path) {
+		$paths[(string) $path] = (string) $path['action'];
+	}
+	$base = "/branches/{$branch}/";
+	if (!isset($paths[$base . 'src/wp-includes/version.php'])) {
+		return array('none', array());
+	}
+	$issues = array();
+	$files  = array('src/wp-includes/version.php', 'composer.json', 'package.json', 'package-lock.json');
+	foreach ($paths as $path => $action) {
+		if (!in_array($path, array_map(static fn($file): string => $base . $file, $files), true)) {
+			$issues[] = "{$label}: post-release bump r{$revision} changed unexpected path {$path}.";
+		}
+		if ('M' !== $action) {
+			$issues[] = "{$label}: post-release bump r{$revision} action '{$action}' for {$path} is not M.";
+		}
+	}
+	$parts    = explode('.', $tag);
+	$next     = $parts[0] . '.' . $parts[1] . '.' . ((int) ($parts[2] ?? 0) + 1);
+	$expected = "{$next}-alpha-{$revision}-src";
+	$previous = (int) $revision - 1;
+	$before   = svn_read(array('cat', "{$svn_url}{$base}src/wp-includes/version.php@{$previous}"), $svn);
+	$after    = svn_read(array('cat', "{$svn_url}{$base}src/wp-includes/version.php@{$revision}"), $svn, true);
+	try {
+		$version = parse_wp_version($after ?? '');
+		if ($expected !== $version) {
+			$issues[] = "{$label}: post-release bump r{$revision} version '{$version}' is not '{$expected}'.";
+		}
+		if ($tag . '-src' !== parse_wp_version($before)) {
+			$issues[] = "{$label}: version.php before post-release bump r{$revision} does not read '{$tag}-src'.";
+		}
+		$tokens = token_get_all($before);
+		$keys   = array_keys(array_filter($tokens, static fn($token): bool => !is_array($token) || !in_array($token[0], array(T_WHITESPACE, T_COMMENT, T_DOC_COMMENT), true)));
+		foreach ($keys as $index => $key) {
+			if (is_array($tokens[$key]) && T_VARIABLE === $tokens[$key][0] && '$wp_version' === $tokens[$key][1] && '=' === ($tokens[$keys[$index + 1] ?? -1] ?? null)) {
+				$literal = $keys[$index + 2];
+				$quote   = $tokens[$literal][1][0];
+				$tokens[$literal][1] = $quote . $expected . $quote;
+			}
+		}
+		if ($after !== implode('', array_map(static fn($token): string => is_array($token) ? $token[1] : $token, $tokens))) {
+			$issues[] = "{$label}: post-release bump r{$revision} changed version.php beyond the wp_version literal.";
+		}
+	} catch (RuntimeException $error) {
+		$issues[] = "{$label}: post-release bump r{$revision}: {$error->getMessage()}";
+	}
+	foreach (array_slice($files, 1) as $file) {
+		$before  = svn_read(array('cat', "{$svn_url}{$base}{$file}@{$previous}"), $svn, true);
+		$touched = isset($paths[$base . $file]);
+		if (!$touched) {
+			if (null !== $before) {
+				$issues[] = "{$label}: post-release bump r{$revision} did not change {$file}.";
+			}
+			continue;
+		}
+		$after = svn_read(array('cat', "{$svn_url}{$base}{$file}@{$revision}"), $svn, true);
+		try {
+			$old = json_decode($before ?? '', false, 512, JSON_THROW_ON_ERROR);
+			$new = json_decode($after ?? '', false, 512, JSON_THROW_ON_ERROR);
+			if (!$old instanceof stdClass || !$new instanceof stdClass) {
+				$issues[] = "{$label}: post-release bump r{$revision} has invalid JSON data in {$file}.";
+				continue;
+			}
+			$lock_root = 'package-lock.json' === $file ? ($old->packages->{''} ?? null) : null;
+			if ($tag !== ($old->version ?? null) || ('package-lock.json' === $file && (!$lock_root instanceof stdClass || $tag !== ($lock_root->version ?? null)))) {
+				$issues[] = "{$label}: {$file} version fields before post-release bump r{$revision} do not read '{$tag}'.";
+				continue;
+			}
+			$old->version = $next;
+			if ($lock_root instanceof stdClass) {
+				$lock_root->version = $next;
+			}
+			// Objects and lists stay distinct; key order does not matter.
+			$canonical = static function (mixed $value) use (&$canonical): mixed {
+				if ($value instanceof stdClass) {
+					$data = get_object_vars($value);
+					ksort($data, SORT_STRING);
+					return array('object' => array_map($canonical, $data));
+				}
+				return is_array($value) ? array('list' => array_map($canonical, $value)) : $value;
+			};
+			if ($canonical($old) !== $canonical($new)) {
+				$issues[] = "{$label}: post-release bump r{$revision} changed {$file} beyond the required version fields or left them incorrect.";
+			}
+		} catch (JsonException $error) {
+			$issues[] = "{$label}: post-release bump r{$revision} has invalid JSON in {$file}: {$error->getMessage()}";
+		}
+	}
+	return array('r' . $revision, $issues);
+}
+
 function audit_tags(array $entries, ?array $expected, string $svn_url, ?callable $svn = null): array {
 	$rows = $findings = $forms = $message_forms = $branches = $tags = array();
 	$tool_error = false;
@@ -304,7 +410,7 @@ function audit_tags(array $entries, ?array $expected, string $svn_url, ?callable
 		$tag    = $entry['tag'];
 		$label  = "Line {$entry['line']} ({$branch})";
 		$issues = array();
-		$row    = array($branch, $tag, '-', '-', '-', '-', 'PASS');
+		$row    = array($branch, $tag, '-', '-', '-', '-', '-', 'PASS');
 		if (isset($branches[$branch])) {
 			$issues[] = "{$label}: duplicate branch {$branch}.";
 		}
@@ -373,10 +479,14 @@ function audit_tags(array $entries, ?array $expected, string $svn_url, ?callable
 						$issues[] = "{$label}: branches/{$branch} changed in r{$last['revision']} after the version bump r{$bump['revision']}, before the tag copy.";
 					}
 				}
+				if (1 === preg_match('/^\d+$/D', $copy)) {
+					[$row[6], $post_issues] = audit_post_bump($branch, $tag, $copy, $label, $svn_url, $svn);
+					$issues = array_merge($issues, $post_issues);
+				}
 			}
 		} catch (Throwable $error) {
 			$tool_error = true;
-			$row[6]     = 'ERROR';
+			$row[7]     = 'ERROR';
 			$issues[]   = "{$label}: {$error->getMessage()}";
 		}
 		$form = message_form($entry['message'], $tag);
@@ -386,8 +496,8 @@ function audit_tags(array $entries, ?array $expected, string $svn_url, ?callable
 		} else {
 			$message_forms[$form] = true;
 		}
-		if ($issues && 'ERROR' !== $row[6]) {
-			$row[6] = 'FAIL';
+		if ($issues && 'ERROR' !== $row[7]) {
+			$row[7] = 'FAIL';
 		}
 		$rows[] = $row;
 		$findings = array_merge($findings, $issues);
@@ -405,7 +515,7 @@ function audit_tags(array $entries, ?array $expected, string $svn_url, ?callable
 			$findings[] = 'Extra branches: ' . implode(', ', $extra) . '.';
 		}
 	}
-	$stderr = sprintf(AUDIT_ROW, 'Branch', 'Tag', 'Created', 'Copied from', 'Bump', 'Version read', 'Verdict');
+	$stderr = sprintf(AUDIT_ROW, 'Branch', 'Tag', 'Created', 'Copied from', 'Bump', 'Version read', 'Post bump', 'Verdict');
 	foreach ($rows as $row) {
 		$stderr .= sprintf(AUDIT_ROW, ...$row);
 	}
