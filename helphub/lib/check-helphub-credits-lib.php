@@ -286,7 +286,7 @@ function helphub_credits_read_news(string $source): string {
 	return $text;
 }
 
-function helphub_credits_news_security_section(string $post): ?string {
+function helphub_credits_news_security_content(string $post): ?string {
 	if ($post !== strip_tags($post)) {
 		$document = new DOMDocument();
 		$previous = libxml_use_internal_errors(true);
@@ -307,14 +307,14 @@ function helphub_credits_news_security_section(string $post): ?string {
 	$start = null;
 	foreach ($headings as $heading) {
 		if (null !== $start) {
-			return helphub_credits_normalize_line(substr($post, $start, $heading[0][1] - $start));
+			return substr($post, $start, $heading[0][1] - $start);
 		}
 		if (null === $start && 1 === preg_match('/\ASecurity updates? included in this release\z/i', helphub_credits_normalize_line($heading[2][0]))) {
 			$start = $heading[0][1] + strlen($heading[0][0]);
 		}
 	}
 	if (null !== $start) {
-		return helphub_credits_normalize_line(substr($post, $start));
+		return substr($post, $start);
 	}
 	if ($post !== strip_tags($post)) {
 		return null;
@@ -336,26 +336,71 @@ function helphub_credits_news_security_section(string $post): ?string {
 		$lines[] = $line;
 	}
 
-	return null === $lines ? null : helphub_credits_normalize_line(implode(' ', $lines));
+	return null === $lines ? null : implode("\n", $lines);
+}
+
+function helphub_credits_news_security_section(string $post, array &$bullets = array()): ?string {
+	$section = helphub_credits_news_security_content($post);
+	$bullets = array();
+	if (null === $section) {
+		return null;
+	}
+	if ($post !== strip_tags($post)) {
+		$document = new DOMDocument();
+		$previous = libxml_use_internal_errors(true);
+		try {
+			$document->loadHTML('<?xml encoding="UTF-8">' . $section, LIBXML_NONET);
+		} finally {
+			libxml_clear_errors();
+			libxml_use_internal_errors($previous);
+		}
+		foreach ($document->getElementsByTagName('li') as $item) {
+			$own = $item->cloneNode(true);
+			foreach (array('ul', 'ol') as $tag) {
+				while ($list = $own->getElementsByTagName($tag)->item(0)) {
+					$list->parentNode->removeChild($list);
+				}
+			}
+			$bullets[] = helphub_credits_normalize_line($document->saveHTML($own));
+		}
+	} else {
+		preg_match_all('/^(?:[-*+•]|\d+[.)]) (.*)$/mu', $section, $matches);
+		$bullets = array_map(static fn(string $bullet): string => helphub_credits_normalize_line(preg_replace('/\[([^\]]*)\]\((?:[^()\s]|\([^()\s]*\))*(?:\s+"[^"]*"|\s+\'[^\']*\')?\)/', '$1', $bullet) ?? $bullet), $matches[1]);
+	}
+
+	return helphub_credits_normalize_line($section);
+}
+
+function helphub_credits_reporter(string $credit): ?string {
+	$offset = strripos($credit, ' reported by ');
+	return false === $offset ? null : rtrim(trim(substr($credit, $offset + strlen(' reported by '))), '.');
+}
+
+function helphub_credits_reporter_short(string $reporter): string {
+	return preg_replace('/ (?:\([^()]*\)|of (?:(?! and )[^,&])+)\z/i', '', $reporter) ?? $reporter;
 }
 
 function helphub_credits_check_news(array $manifest, string $post): int {
 	$text     = helphub_credits_normalize_line($post);
-	$security = helphub_credits_news_security_section($post);
-	$counts = array('PASS' => 0, 'MISSING' => 0, 'UNCHECKED' => 0, 'SKIPPED' => 0);
+	$bullets  = array();
+	$security = helphub_credits_news_security_section($post, $bullets);
+	$reporters = array();
+	$counts = array('PASS' => 0, 'MISSING' => 0, 'UNCHECKED' => 0, 'SKIPPED' => 0, 'UNMATCHED' => 0);
 	$rows   = array();
 	foreach ($manifest['credits'] as $number => $credit) {
+		$reporter = helphub_credits_reporter(helphub_credits_normalize_line($credit));
+		if (null !== $reporter && '' !== $reporter) {
+			$name = mb_strtolower(helphub_credits_reporter_short($reporter), 'UTF-8');
+			$reporters[$name] = ($reporters[$name] ?? 0) + 1;
+		}
 		if (null === $security) {
 			$rows[] = array($number, 'reporter', 'MISSING', 'security section not found');
 			continue;
 		}
-		$credit = helphub_credits_normalize_line($credit);
-		$offset = strripos($credit, ' reported by ');
-		if (false === $offset) {
+		if (null === $reporter) {
 			$rows[] = array($number, 'reporter', 'UNCHECKED', 'credit has no "reported by"');
 			continue;
 		}
-		$reporter = rtrim(trim(substr($credit, $offset + strlen(' reported by '))), '.');
 		if ('' === $reporter) {
 			$rows[] = array($number, 'reporter', 'UNCHECKED', 'credit has no reporter after "reported by"');
 			continue;
@@ -378,8 +423,29 @@ function helphub_credits_check_news(array $manifest, string $post): int {
 		echo "  Fix #{$number} {$check}: {$status} ({$detail})\n";
 		$counts[$status]++;
 	}
-	printf("\n%d check(s): %d PASS, %d MISSING, %d UNCHECKED, %d SKIPPED.\n",
-		count($rows), $counts['PASS'], $counts['MISSING'], $counts['UNCHECKED'], $counts['SKIPPED']);
+	foreach ($bullets as $index => $bullet) {
+		$tail = helphub_credits_reporter(' ' . $bullet);
+		$found = false;
+		$detail = null === $tail
+			? 'no "reported by": ' . (preg_replace('/\A(.{0,80}).*\z/us', '$1', $bullet) ?? $bullet)
+			: "{$tail} matches no manifest credit";
+		if (null !== $tail && '' !== $tail) {
+			$name = mb_strtolower(helphub_credits_reporter_short($tail), 'UTF-8');
+			if ('' !== $name && isset($reporters[$name])) {
+				$found = 0 < $reporters[$name];
+				$detail = $found ? $tail : "{$tail} has more post bullets than manifest credits";
+				if ($found) {
+					$reporters[$name]--;
+				}
+			}
+		}
+		$status = $found ? 'PASS' : 'UNMATCHED';
+		$number = $index + 1;
+		echo "  Post bullet {$number} reporter: {$status} ({$detail})\n";
+		$counts[$status]++;
+	}
+	printf("\n%d check(s): %d PASS, %d MISSING, %d UNCHECKED, %d SKIPPED, %d UNMATCHED.\n",
+		count($rows) + count($bullets), $counts['PASS'], $counts['MISSING'], $counts['UNCHECKED'], $counts['SKIPPED'], $counts['UNMATCHED']);
 
-	return $counts['MISSING'] ? 2 : 0;
+	return $counts['MISSING'] || $counts['UNMATCHED'] ? 2 : 0;
 }

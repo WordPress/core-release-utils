@@ -408,9 +408,178 @@ foreach ($news_cases as $label => [$credit, $post, $advisory, $code, $output]) {
 	}
 	check("News: {$label} exit", $code, $result_code);
 	check("News: {$label} output", true, str_contains($result_output, 'Fix #1332 ' . $output));
-	check("News: {$label} summary", true, str_contains($result_output, '3 check(s):'));
+	check("News: {$label} summary", true, str_contains($result_output, (str_contains($post, '<li>') ? '4' : '3') . ' check(s):'));
 }
-check('News: summary counts', true, str_contains($result_output, '3 check(s): 1 PASS, 0 MISSING, 0 UNCHECKED, 2 SKIPPED.'));
+check('News: summary counts', true, str_contains($result_output, '3 check(s): 1 PASS, 0 MISSING, 0 UNCHECKED, 2 SKIPPED, 0 UNMATCHED.'));
+
+$bullet_cases = array(
+	'HTML list matches every credit' => array(
+		array('Ann Example', 'Bo Sample'),
+		'<h2>Security updates included in this release</h2><ul><li>Example issue reported by Ann Example.</li><li>Sample issue reported by Bo Sample.</li></ul>',
+		0, array('PASS (Ann Example)', 'PASS (Bo Sample)'),
+	),
+	'Extra HTML bullet' => array(
+		array('Ann Example'),
+		'<h2>Security updates included in this release</h2><ul><li>Example issue reported by Ann Example.</li><li>Sample issue reported by Bo Sample.</li></ul>',
+		2, array('PASS (Ann Example)', 'UNMATCHED (Bo Sample matches no manifest credit)'),
+	),
+	'Nested unordered bullet keeps its own reporter' => array(
+		array('Ann Example'),
+		'<h2>Security updates included in this release</h2><ul><li>Stale issue reported by Bo Sample.<ul><li>Example issue reported by Ann Example.</li></ul></li></ul>',
+		2, array('UNMATCHED (Bo Sample matches no manifest credit)', 'PASS (Ann Example)'),
+	),
+	'Nested ordered bullet keeps its own reporter' => array(
+		array('Ann Example'),
+		'<h2>Security updates included in this release</h2><ol><li>Stale issue reported by Bo Sample.<ol><li>Example issue reported by Ann Example.</li></ol></li></ol>',
+		2, array('UNMATCHED (Bo Sample matches no manifest credit)', 'PASS (Ann Example)'),
+	),
+	'One credit cannot cover two bullets' => array(
+		array('Ann Example (Example Co)'),
+		"Security updates\n- Example issue reported by Ann Example.\n- Sample issue reported by ANN EXAMPLE of Example Co.",
+		2, array('PASS (Ann Example)', 'UNMATCHED (ANN EXAMPLE of Example Co has more post bullets than manifest credits)'),
+	),
+	'Two credits cover two bullets' => array(
+		array('Ann Example (Example Co)', 'ANN EXAMPLE of Example Co'),
+		"Security updates\n- Example issue reported by Ann Example.\n- Sample issue reported by Ann Example.",
+		0, array('PASS (Ann Example)', 'PASS (Ann Example)'),
+	),
+	'Combined reporters are not a single reporter' => array(
+		array('Bo Sample'),
+		'<h2>Security updates included in this release</h2><ul><li>Example issue reported by Ann Example and Bo Sample.</li></ul>',
+		2, array('UNMATCHED (Ann Example and Bo Sample matches no manifest credit)'),
+	),
+	'Bullet without reported by' => array(
+		array('Ann Example'),
+		'<h2>Security updates included in this release</h2><ul><li>Thanks to Ann Example.</li></ul>',
+		2, array('UNMATCHED (no "reported by": Thanks to Ann Example.)'),
+	),
+	'Long bullet without reported by' => array(
+		array('Ann Example'),
+		"Security updates\n- Ann Example " . str_repeat('é', 90),
+		2, array('UNMATCHED (no "reported by": Ann Example ' . str_repeat('é', 68) . ')'),
+	),
+	'Manifest parenthetical affiliation' => array(
+		array('Ann Example (Example Co)'),
+		"Security updates\n- Example issue reported by Ann Example.",
+		0, array('PASS (Ann Example)'),
+	),
+	'Post parenthetical affiliation' => array(
+		array('Ann Example'),
+		"Security updates\n- Example issue reported by Ann Example (Example Co).",
+		0, array('PASS (Ann Example (Example Co))'),
+	),
+	'Manifest of affiliation' => array(
+		array('Ann Example of Example Co'),
+		"Security updates\n- Example issue reported by Ann Example.",
+		0, array('PASS (Ann Example)'),
+	),
+	'Post of affiliation' => array(
+		array('Ann Example'),
+		"Security updates\n- Example issue reported by Ann Example of Example Co.",
+		0, array('PASS (Ann Example of Example Co)'),
+	),
+	'Parenthetical affiliation preserves extra reporters' => array(
+		array('Ann Example'),
+		"Security updates\n- Example issue reported by Ann Example (Example Co) and Bo Sample.",
+		2, array('UNMATCHED (Ann Example (Example Co) and Bo Sample matches no manifest credit)'),
+	),
+	'Of affiliation preserves extra reporters' => array(
+		array('Ann Example'),
+		"Security updates\n- Example issue reported by Ann Example of Example Co and Bo Sample.",
+		2, array('UNMATCHED (Ann Example of Example Co and Bo Sample matches no manifest credit)'),
+	),
+	'Markdown bullet markers and last reported by' => array(
+		array('Ann Example', 'Ann Example', 'Ann Example', 'Ann Example', 'Ann Example', 'Ann Example'),
+		"## Security updates\n- Example issue reported by Ann Example.\n* First reported by Bo Sample, later REPORTED BY ANN EXAMPLE.\n• Sample issue reported by Ann Example.\n+ Sample issue reported by Ann Example.\n1. Sample issue reported by Ann Example.\n2) Sample issue reported by Ann Example.",
+		0, array('PASS (Ann Example)', 'PASS (ANN EXAMPLE)', 'PASS (Ann Example)', 'PASS (Ann Example)', 'PASS (Ann Example)', 'PASS (Ann Example)'),
+	),
+	'Unicode case insensitive bullet reporter' => array(
+		array('Élodie'),
+		"## Security updates\n- Issue reported by éLODIE.",
+		0, array('PASS (éLODIE)'),
+	),
+	'Bullet starting with reported by' => array(
+		array('Ann Example'),
+		"## Security updates\n- Reported by Ann Example.",
+		0, array('PASS (Ann Example)'),
+	),
+	'Markdown link reporter uses its text' => array(
+		array('Ann Example'),
+		"## Security updates\n- Example issue reported by [Ann Example](https://example.com/ann).",
+		0, array('PASS (Ann Example)'),
+	),
+	'Markdown link with balanced URL parentheses' => array(
+		array('Ann Example'),
+		"## Security updates\n- Example issue reported by [Ann Example](https://example.com/a_(b)).",
+		0, array('PASS (Ann Example)'),
+	),
+	'Markdown link with quoted title' => array(
+		array('Ann Example'),
+		"## Security updates\n- Example issue reported by [Ann Example](https://example.com \"profile\").",
+		0, array('PASS (Ann Example)'),
+	),
+	'HTML contributors bullets ignored' => array(
+		array('Ann Example'),
+		'<h2>Security updates included in this release</h2><ul><li>Example issue reported by Ann Example.</li></ul><h3>Thank you to these WordPress contributors</h3><ul><li>Bo Sample</li></ul>',
+		0, array('PASS (Ann Example)'),
+	),
+	'Markdown contributors bullets ignored' => array(
+		array('Ann Example'),
+		"## Security updates\n- Example issue reported by Ann Example.\n## Thank you to these WordPress contributors\n- Bo Sample",
+		0, array('PASS (Ann Example)'),
+	),
+	'Plain contributors bullets ignored' => array(
+		array('Ann Example'),
+		"Security updates\n- Example issue reported by Ann Example.\nThank you to these WordPress contributors\n- Bo Sample",
+		0, array('PASS (Ann Example)'),
+	),
+	'HTML entry-content scopes bullets' => array(
+		array('Ann Example'),
+		'<article><div class="entry-content"><h2>Security updates included in this release</h2><ul><li>Example issue reported by <a>Ann&nbsp;Example</a>.</li></ul></div><footer><ul><li>Bo Sample</li></ul></footer></article>',
+		0, array('PASS (Ann Example)'),
+	),
+	'HTML article scopes bullets' => array(
+		array('Ann Example'),
+		'<article><h2>Security updates included in this release</h2><ul><li>Example issue reported by Ann Example.</li></ul></article><footer><ul><li>Bo Sample</li></ul></footer>',
+		0, array('PASS (Ann Example)'),
+	),
+	'HTML prose does not become Markdown bullets' => array(
+		array('Ann Example'),
+		"<h2>Security updates included in this release</h2>\n- Thanks to Ann Example.",
+		0, array(),
+	),
+	'Empty manifest reporter cannot match empty post reporter' => array(
+		array(''),
+		"Security updates\n- Example issue reported by .",
+		2, array('UNMATCHED ( matches no manifest credit)'),
+	),
+);
+foreach ($bullet_cases as $label => [$names, $body, $code, $expected]) {
+	$bullet_manifest = array('release' => '99.8.7', 'credits' => array(), 'advisories' => array(99001 => null));
+	foreach ($names as $index => $name) {
+		$bullet_manifest['credits'][99001 + $index] = "Example issue reported by {$name}.";
+	}
+	ob_start();
+	try {
+		$bullet_code = helphub_credits_check_news($bullet_manifest, $body);
+	} finally {
+		$bullet_output = ob_get_clean();
+	}
+	check("News: {$label} exit", $code, $bullet_code);
+	preg_match_all('/^  Post bullet \d+ reporter: .*$/m', $bullet_output, $matches);
+	$expected_rows = array();
+	foreach ($expected as $index => $detail) {
+		$expected_rows[] = '  Post bullet ' . ($index + 1) . ' reporter: ' . $detail;
+	}
+	check("News: {$label} rows in post order", $expected_rows, $matches[0]);
+	check("News: {$label} total checks", true, str_contains($bullet_output, (count($names) + 1 + count($expected)) . ' check(s):'));
+	$unmatched = count(array_filter($expected, fn($detail) => str_starts_with($detail, 'UNMATCHED')));
+	check("News: {$label} unmatched count", true, str_contains($bullet_output, "{$unmatched} UNMATCHED."));
+	if ($expected_rows) {
+		check("News: {$label} bullets follow existing rows", true,
+			strpos($bullet_output, 'advisory: SKIPPED') < strpos($bullet_output, $expected_rows[0]));
+	}
+}
 
 $news_options = array('release' => '7.1.2', 'manifest' => 'manifest.json', 'news-post' => 'post.html');
 check('News: valid options', null, helphub_credits_news_option_error($news_options));
