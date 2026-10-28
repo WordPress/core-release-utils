@@ -266,8 +266,12 @@ requests, needs no credentials, and refuses `--only` and `--user`. Reporters are
 searched only within the security section; a missing section makes every
 reporter MISSING. GHSA IDs are searched across the whole post. Exit codes match
 HelpHub mode: findings and manifest/validation errors exit 2; usage and runtime
-read failures exit 1. Within a security section, credits without “reported by”
+read failures exit 1. Within a security section, manifest credits without “reported by”
 are UNCHECKED; null advisories are skipped. Neither fails the check.
+Each security-section bullet must name a manifest reporter, and no reporter may
+have more bullets than manifest credits. An unmatched bullet, including one
+without "reported by", is UNMATCHED and exits 2. This cannot detect a stale bullet
+that replaces a current one for the same reporter, so a human still reads the bullets.
 
 ## Checking HelpHub version pages
 
