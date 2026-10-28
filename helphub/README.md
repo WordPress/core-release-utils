@@ -258,6 +258,9 @@ bullets is not a mismatch. A manifest credit still carrying a `FILL IN` marker i
 always a mismatch, on every page it reaches, because there is nothing to
 verify it against.
 
+If the pages were drafted with `--note`, pass the same `--note=<text>` values here.
+Each note is then expected once on every page, like a credit line.
+
 Without a credential, a branch the release wave should have reached but this
 run cannot find is reported unreadable, never missing and never a pass—it
 might be a draft nobody can see yet.
@@ -282,7 +285,7 @@ without "reported by", is UNMATCHED and exits 2. This cannot detect a stale bull
 that replaces a current one for the same reporter, so a human still reads the bullets.
 
 With `--news-post`, repeat `--note=<text>` to recognize each non-fix security bullet as NOTE once, using normalized, case-insensitive matching.
-An absent note is MISSING and exits 2; `--note` without `--news-post` is refused.
+An absent note is MISSING and exits 2.
 
 ```sh
 php helphub/check-helphub-credits.php \

@@ -109,6 +109,19 @@ check('Only the reaching fix appears for 7.0', array(
 ), $expected_70['lines']);
 check('Neither branch has a fill-in', array(), $expected_70['fill_ins']);
 
+// A drafted note is one more expected line on every page, matched the way the page renders it.
+$page_note    = 'An update to the example <widget> & "library".';
+$noted_page   = helphub_draft_page('7.1.9', '2000-01-01', array('src/example.php'), $fixes, $credits,
+	array('7.1.9'), array('7.1', '7.0'), array(), array(), array(), null, array($page_note));
+$noted_live   = array_map('helphub_credits_normalize_line', helphub_credit_bullets(helphub_page_to_text($noted_page['body'])));
+$noted_lines  = helphub_credits_expected_lines($fixes, $credits, '7.1', array(), null, array($page_note));
+check('Page note round-trips through the draft generator', array('missing' => array(), 'unexpected' => array()),
+	helphub_credits_compare($noted_lines['lines'], $noted_live));
+check('Page note left off the check is unexpected', array('missing' => array(), 'unexpected' => array(helphub_credits_normalize_line($page_note))),
+	helphub_credits_compare($expected_71['lines'], $noted_live));
+check('Page note absent from the page is missing', array('missing' => array(helphub_credits_normalize_line($page_note)), 'unexpected' => array()),
+	helphub_credits_compare($noted_lines['lines'], array_slice($noted_live, 0, -1)));
+
 // Comparing as multisets: order never matters, but a real difference names both sides.
 check('Matching multisets compare clean', array('missing' => array(), 'unexpected' => array()),
 	helphub_credits_compare(array('A', 'B'), array('B', 'A')));
@@ -628,8 +641,9 @@ foreach ($note_cases as $label => [$body, $notes, $expected_code, $expected_outp
 	}
 }
 $note_options = array('release' => '99.8.7', 'manifest' => 'example-manifest.json', 'note' => $note_text);
-check('News notes require news-post', array('message' => '--note requires --news-post.', 'code' => 1),
-	helphub_credits_news_option_error($note_options));
+check('Page-mode notes need no news-post', null, helphub_credits_news_option_error($note_options));
+check('Page-mode notes refuse a reporter credit', 1,
+	helphub_credits_news_option_error(array('note' => 'Example issue reported by Ann Example.') + $note_options)['code'] ?? null);
 check('News notes accept news-post', null,
 	helphub_credits_news_option_error($note_options + array('news-post' => 'example-post.html')));
 check('News notes refuse a reporter credit', 1,

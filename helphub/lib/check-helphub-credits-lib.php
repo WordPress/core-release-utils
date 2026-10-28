@@ -70,9 +70,10 @@ function helphub_credits_reaching_fixes(array $fixes, string $line, array $issue
  *
  * @param array<int,string[]> $fixes
  * @param array<int,string>   $credits
+ * @param string[]            $notes   Non-fix bullets, as given to the draft generator.
  * @return array{lines:string[],fill_ins:int[]}
  */
-function helphub_credits_expected_lines(array $fixes, array $credits, string $line, array $issues = array(), ?array $entries = null): array {
+function helphub_credits_expected_lines(array $fixes, array $credits, string $line, array $issues = array(), ?array $entries = null, array $notes = array()): array {
 	$entries = $entries ?? helphub_manifest_entries($fixes, $issues);
 	$result   = helphub_credit_lines($fixes, $credits, $line, $issues, $entries);
 	$numbers  = helphub_credits_reaching_fixes($fixes, $line, $issues, $entries);
@@ -89,6 +90,9 @@ function helphub_credits_expected_lines(array $fixes, array $credits, string $li
 			continue;
 		}
 		$lines[] = $normalized;
+	}
+	foreach ($notes as $note) {
+		$lines[] = helphub_credits_normalize_line($note);
 	}
 
 	return array('lines' => $lines, 'fill_ins' => array_keys($fill_ins));
@@ -232,9 +236,6 @@ function helphub_credits_wave_stray(array $pages, array $wave, string $line, ?st
 }
 
 function helphub_credits_news_option_error(array $options, ?array $manifest = null): ?array {
-	if (array_key_exists('note', $options) && !array_key_exists('news-post', $options)) {
-		return array('message' => '--note requires --news-post.', 'code' => 1);
-	}
 	foreach ((array) ($options['note'] ?? array()) as $note) {
 		if (null !== helphub_credits_reporter(' ' . helphub_credits_normalize_line((string) $note))) {
 			return array('message' => "--note names a reporter, so it is a fix credit, not a note: {$note}", 'code' => 1);
