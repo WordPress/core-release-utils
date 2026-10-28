@@ -511,10 +511,20 @@ check('audit tags missing tag fails', 2, $result['code']);
 check('audit tags missing tag has no form line', false, str_contains($result['stderr'], 'message form'));
 $result = audit('', fake_audit(), array('--tags=6.5.12', '--branches=6.5,6.4'));
 check('audit tags names missing branches', true, 2 === $result['code'] && str_contains($result['stderr'], 'Missing branches: 6.4.'));
-foreach (array(array('--tags=6.5.12', '--file=commands.txt'), array('--tags=x.y'), array('--tags='), array('--tags=6.5.12.1')) as $options) {
-	check('audit tags rejects ' . implode(' ', $options), 1, audit('', $no_reads ?? fake_audit(), $options)['code']);
+foreach (array(
+	'--tags applies only to --audit, without --file.' => array('--tags=6.5.12', '--file=commands.txt'),
+	"Bad tag: 'x.y'. Expected X.Y or X.Y.Z." => array('--tags=x.y'),
+	'--tags is empty.' => array('--tags='),
+	"Bad tag: '6.5.12.1'. Expected X.Y or X.Y.Z." => array('--tags=6.5.12.1'),
+) as $message => $options) {
+	check('audit tags rejects ' . implode(' ', $options), array('code' => 1, 'stdout' => '', 'stderr' => $message . "\n"), audit('', $no_reads, $options));
 }
-check('verify rejects tags', 1, run(array('svn-tags.php', '--verify', '--tags=6.5.12'), fake_svn(), $line, NOW)['code']);
+check('verify rejects tags', "--tags applies only to --audit, without --file.\n", run(array('svn-tags.php', '--verify', '--tags=6.5.12'), $no_reads, $line, NOW)['stderr']);
+$result = audit('', fake_audit(), array('--tags=6.5.12,6.5.12'));
+check('audit tags duplicate tag fails', 2, $result['code']);
+check('audit tags duplicate tag finding', true, str_contains($result['stderr'], 'duplicate tag 6.5.12.'));
+$result = audit('', fake_audit(array('6.5.12' => array(), '6.4.9' => array('branch' => '6.4', 'source' => '/branches/6.4', 'missing' => true))), array('--tags=6.5.12,6.4.9'));
+check('audit tags missing tag after a valid one has no form line', false, str_contains($result['stderr'], 'Tag 6.4.9 (6.4): message form'));
 
 if ($failures) {
 	foreach ($failures as $failure) {

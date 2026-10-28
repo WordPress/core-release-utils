@@ -578,7 +578,7 @@ function run(array $argv, ?callable $svn = null, ?string $input = null, ?int $no
 				$entries[] = array('branch' => $branch);
 			}
 		} elseif (isset($options['tags'])) {
-			foreach (array_values(array_unique(preg_split('/[\s,]+/', trim($options['tags']), -1, PREG_SPLIT_NO_EMPTY))) as $tag) {
+			foreach (preg_split('/[\s,]+/', trim($options['tags']), -1, PREG_SPLIT_NO_EMPTY) as $tag) {
 				if (1 !== preg_match('/^(\d+\.\d+)(?:\.\d+)?$/D', $tag, $match)) {
 					throw new InvalidArgumentException("Bad tag: '{$tag}'. Expected X.Y or X.Y.Z.");
 				}
