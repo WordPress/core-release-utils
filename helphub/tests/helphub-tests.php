@@ -110,7 +110,7 @@ check('Only the reaching fix appears for 7.0', array(
 check('Neither branch has a fill-in', array(), $expected_70['fill_ins']);
 
 // A drafted note is one more expected line on every page, matched the way the page renders it.
-$page_note    = 'An update to the example <widget> & "library".';
+$page_note    = 'An update to the example widget & "library".';
 $noted_page   = helphub_draft_page('7.1.9', '2000-01-01', array('src/example.php'), $fixes, $credits,
 	array('7.1.9'), array('7.1', '7.0'), array(), array(), array(), null, array($page_note));
 $noted_live   = array_map('helphub_credits_normalize_line', helphub_credit_bullets(helphub_page_to_text($noted_page['body'])));
