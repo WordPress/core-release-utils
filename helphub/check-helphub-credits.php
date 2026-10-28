@@ -111,7 +111,7 @@ $options = cli_options($argv, array(
 if (isset($options['help'])) {
 	echo "Usage: {$argv[0]} --release=<X.Y.Z> --manifest=<helphub-manifest-X.Y.Z.json> [--site=<url>] [--user=<login>] "
 		. "[--only=<X.Y.Z>] [--news-post=<URL or file>] [--note=<text>]... [--verbose] [--help]\n"
-		. "\nWith --news-post, repeat --note to recognize non-fix security bullets as NOTE; absent notes are MISSING.\n"
+		. "\nRepeat --note for each non-fix security bullet: NOTE with --news-post, an expected line on every HelpHub page otherwise.\n"
 		. "Example: --news-post=example-post.html --note=\"An update to the example widget library.\"\n"
 		. "\nHelpHub mode reads the application password from the HELPHUB_APP_PASSWORD environment variable.\n";
 	exit(0);
@@ -141,6 +141,7 @@ try {
 		exit(helphub_credits_check_news($manifest, helphub_credits_read_news($options['news-post']), (array) ($options['note'] ?? array())));
 	}
 
+	$notes    = helphub_draft_notes((array) ($options['note'] ?? array()));
 	$user     = isset($options['user']) && is_string($options['user']) && '' !== $options['user'] ? $options['user'] : null;
 	$password = getenv('HELPHUB_APP_PASSWORD');
 	$password = is_string($password) ? trim($password) : '';
@@ -227,7 +228,7 @@ try {
 		if (null !== $live) {
 			$live = array_map('helphub_credits_normalize_line', $live);
 		}
-		$expected = helphub_credits_expected_lines($manifest['fixes'], $manifest['credits'], $line, $manifest['issues'] ?? array(), $entries);
+		$expected = helphub_credits_expected_lines($manifest['fixes'], $manifest['credits'], $line, $manifest['issues'] ?? array(), $entries, $notes);
 
 		if (null === $live) {
 			echo "  {$version}: MISMATCH\n";
@@ -240,7 +241,9 @@ try {
 		$ok  = !$expected['fill_ins'] && !$cmp['missing'] && !$cmp['unexpected'];
 
 		if ($ok) {
-			echo "  {$version}: OK (" . count($expected['lines']) . (1 === count($expected['lines']) ? ' credit' : ' credits') . ")\n";
+			$credit_count = count($expected['lines']) - count($notes);
+			echo "  {$version}: OK ({$credit_count}" . (1 === $credit_count ? ' credit' : ' credits')
+				. ($notes ? ', ' . count($notes) . (1 === count($notes) ? ' note' : ' notes') : '') . ")\n";
 			$ok_count++;
 			continue;
 		}
