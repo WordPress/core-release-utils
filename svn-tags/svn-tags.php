@@ -8,6 +8,7 @@ declare(strict_types=1);
  * Usage: php svn-tags.php --generate --branches=6.5,6.4,6.3
  * Usage: php svn-tags.php --verify [--branches=6.5,6.4] [--file=commands.txt]
  * Usage: php svn-tags.php --audit [--branches=6.5,6.4] [--file=commands.txt]
+ * Usage: php svn-tags.php --audit --tags=6.5.12,6.4.9 (checks each landed message's form instead of a command)
  * Ranges: --branch-start=6.5 --branch-end=6.3 replaces --branches with 6.5,6.4,6.3.
  * Options: --svn=URL (repository root), --min-age=60s (whole number with s, m, or h).
  * Exit 0: all checks pass. Exit 2: findings. Exit 1: malformed input or tool failure.
@@ -17,7 +18,7 @@ declare(strict_types=1);
 const DEFAULT_SVN = 'https://develop.svn.wordpress.org';
 const ROW         = "%-8s %-26s %-16s %-8s %-13s %-12s %s\n";
 const AUDIT_ROW   = "%-8s %-16s %-10s %-16s %-10s %-26s %-10s %s\n";
-const USAGE       = 'Usage: svn-tags.php (--generate BRANCHES | --verify [BRANCHES] [--file=path] | --audit [BRANCHES] [--file=path]) [--svn=URL] [--min-age=60s (generate/verify only)]' . "\n" . 'BRANCHES: --branches=X.Y,... or --branch-start=X.Y --branch-end=X.Y';
+const USAGE       = 'Usage: svn-tags.php (--generate BRANCHES | --verify [BRANCHES] [--file=path] | --audit [BRANCHES] [--file=path | --tags=X.Y.Z,...]) [--svn=URL] [--min-age=60s (generate/verify only)]' . "\n" . 'BRANCHES: --branches=X.Y,... or --branch-start=X.Y --branch-end=X.Y';
 
 function fail(string $message, int $code = 1): never {
 	fwrite(STDERR, $message . PHP_EOL);
@@ -408,9 +409,10 @@ function audit_tags(array $entries, ?array $expected, string $svn_url, ?callable
 	foreach ($entries as $entry) {
 		$branch = $entry['branch'];
 		$tag    = $entry['tag'];
-		$label  = "Line {$entry['line']} ({$branch})";
+		$label  = isset($entry['line']) ? "Line {$entry['line']} ({$branch})" : "Tag {$tag} ({$branch})";
 		$issues = array();
 		$row    = array($branch, $tag, '-', '-', '-', '-', '-', 'PASS');
+		$landed = null;
 		if (isset($branches[$branch])) {
 			$issues[] = "{$label}: duplicate branch {$branch}.";
 		}
@@ -463,7 +465,8 @@ function audit_tags(array $entries, ?array $expected, string $svn_url, ?callable
 					$row[3] = (str_starts_with($source, '/branches/') ? substr($source, 10) : $source) . '@' . $copy;
 				}
 				$message = rtrim((string) $created->msg);
-				if ($entry['message'] !== $message) {
+				$landed  = $message;
+				if (null !== $entry['message'] && $entry['message'] !== $message) {
 					$issues[] = "{$label}: tag {$tag} landed message '{$message}' differs from command message '{$entry['message']}'.";
 				}
 				$version = parse_wp_version(svn_read(array('cat', "{$svn_url}/tags/{$tag}/src/wp-includes/version.php@" . substr($row[2], 1)), $svn));
@@ -489,12 +492,15 @@ function audit_tags(array $entries, ?array $expected, string $svn_url, ?callable
 			$row[7]     = 'ERROR';
 			$issues[]   = "{$label}: {$error->getMessage()}";
 		}
-		$form = message_form($entry['message'], $tag);
-		$forms[] = "{$label}: message form " . ($form ?? 'unrecognized') . '.';
-		if (null === $form) {
-			$issues[] = "{$label}: message must name tag {$tag} as 'Tag {$tag}' or 'Tagging WordPress {$tag}.'";
-		} else {
-			$message_forms[$form] = true;
+		$form_message = $entry['message'] ?? $landed;
+		if (null !== $form_message) {
+			$form = message_form($form_message, $tag);
+			$forms[] = "{$label}: message form " . ($form ?? 'unrecognized') . '.';
+			if (null === $form) {
+				$issues[] = "{$label}: message must name tag {$tag} as 'Tag {$tag}' or 'Tagging WordPress {$tag}.'";
+			} else {
+				$message_forms[$form] = true;
+			}
 		}
 		if ($issues && 'ERROR' !== $row[7]) {
 			$row[7] = 'FAIL';
@@ -542,7 +548,7 @@ function run(array $argv, ?callable $svn = null, ?string $input = null, ?int $no
 					throw new InvalidArgumentException('Choose exactly one mode.');
 				}
 				$mode = $arg;
-			} elseif (1 === preg_match('/^--(branches|branch-start|branch-end|file|svn|min-age)=(.*)$/D', $arg, $match)) {
+			} elseif (1 === preg_match('/^--(branches|branch-start|branch-end|file|svn|min-age|tags)=(.*)$/D', $arg, $match)) {
 				$options[$match[1]] = $match[2];
 				$age_given = $age_given || 'min-age' === $match[1];
 			} else {
@@ -557,6 +563,9 @@ function run(array $argv, ?callable $svn = null, ?string $input = null, ?int $no
 		if ('--audit' === $mode && $age_given) {
 			throw new InvalidArgumentException('--min-age does not apply to --audit.');
 		}
+		if (isset($options['tags']) && ('--audit' !== $mode || isset($options['file']))) {
+			throw new InvalidArgumentException('--tags applies only to --audit, without --file.');
+		}
 		if (null === $mode || ($generate && ((!isset($options['branches']) && !$ranged) || isset($options['file'])))) {
 			throw new InvalidArgumentException(USAGE);
 		}
@@ -567,6 +576,16 @@ function run(array $argv, ?callable $svn = null, ?string $input = null, ?int $no
 		if ($generate) {
 			foreach ($expected as $branch) {
 				$entries[] = array('branch' => $branch);
+			}
+		} elseif (isset($options['tags'])) {
+			foreach (preg_split('/[\s,]+/', trim($options['tags']), -1, PREG_SPLIT_NO_EMPTY) as $tag) {
+				if (1 !== preg_match('/^(\d+\.\d+)(?:\.\d+)?$/D', $tag, $match)) {
+					throw new InvalidArgumentException("Bad tag: '{$tag}'. Expected X.Y or X.Y.Z.");
+				}
+				$entries[] = array('branch' => $match[1], 'tag' => $tag, 'message' => null);
+			}
+			if (!$entries) {
+				throw new InvalidArgumentException('--tags is empty.');
 			}
 		} else {
 			if (null === $input) {

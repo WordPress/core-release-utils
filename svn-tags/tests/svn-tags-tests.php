@@ -494,6 +494,38 @@ foreach (array('log', 'cat') as $operation) {
 	check("audit post bump {$operation} failure reports authentication error", true, str_contains($result['stderr'], 'Authentication failed'));
 }
 
+// --tags audits landed tags without a command list.
+$result = audit('', fake_audit(), array('--tags=6.5.12'));
+check('audit tags passes', 0, $result['code']);
+check('audit tags labels by tag', true, str_contains($result['stderr'], 'Tag 6.5.12 (6.5): message form Tag.'));
+check('audit tags summary', true, str_contains($result['stderr'], "PASS: 1 tags audited.\n"));
+$result = audit('', fake_audit(array('6.5.12' => array('message' => 'Tagged it'))), array('--tags=6.5.12'));
+check('audit tags checks the landed message form', 2, $result['code']);
+check('audit tags unrecognized landed form', true, str_contains($result['stderr'], "message must name tag 6.5.12 as 'Tag 6.5.12'"));
+check('audit tags has no command-message comparison', false, str_contains($result['stderr'], 'differs from command message'));
+$result = audit('', fake_audit(array('6.5.12' => array(), '6.4.9' => array('branch' => '6.4', 'source' => '/branches/6.4', 'message' => 'Tagging WordPress 6.4.9.'))), array('--tags=6.5.12,6.4.9'));
+check('audit tags mixed landed forms fail', 2, $result['code']);
+check('audit tags mixed landed forms finding', true, str_contains($result['stderr'], 'List mixes message forms: Tag and Tagging WordPress.'));
+$result = audit('', fake_audit(array('6.5.12' => array('missing' => true))), array('--tags=6.5.12'));
+check('audit tags missing tag fails', 2, $result['code']);
+check('audit tags missing tag has no form line', false, str_contains($result['stderr'], 'message form'));
+$result = audit('', fake_audit(), array('--tags=6.5.12', '--branches=6.5,6.4'));
+check('audit tags names missing branches', true, 2 === $result['code'] && str_contains($result['stderr'], 'Missing branches: 6.4.'));
+foreach (array(
+	'--tags applies only to --audit, without --file.' => array('--tags=6.5.12', '--file=commands.txt'),
+	"Bad tag: 'x.y'. Expected X.Y or X.Y.Z." => array('--tags=x.y'),
+	'--tags is empty.' => array('--tags='),
+	"Bad tag: '6.5.12.1'. Expected X.Y or X.Y.Z." => array('--tags=6.5.12.1'),
+) as $message => $options) {
+	check('audit tags rejects ' . implode(' ', $options), array('code' => 1, 'stdout' => '', 'stderr' => $message . "\n"), audit('', $no_reads, $options));
+}
+check('verify rejects tags', "--tags applies only to --audit, without --file.\n", run(array('svn-tags.php', '--verify', '--tags=6.5.12'), $no_reads, $line, NOW)['stderr']);
+$result = audit('', fake_audit(), array('--tags=6.5.12,6.5.12'));
+check('audit tags duplicate tag fails', 2, $result['code']);
+check('audit tags duplicate tag finding', true, str_contains($result['stderr'], 'duplicate tag 6.5.12.'));
+$result = audit('', fake_audit(array('6.5.12' => array(), '6.4.9' => array('branch' => '6.4', 'source' => '/branches/6.4', 'missing' => true))), array('--tags=6.5.12,6.4.9'));
+check('audit tags missing tag after a valid one has no form line', false, str_contains($result['stderr'], 'Tag 6.4.9 (6.4): message form'));
+
 if ($failures) {
 	foreach ($failures as $failure) {
 		fwrite(STDERR, "FAIL: {$failure}\n");
