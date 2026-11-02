@@ -14,12 +14,15 @@ Options: `--previous=ZIP` (the release to upgrade from), `--locales=it_IT,fr_FR`
 
 `--package` and `--previous` take a URL or a local path. The default previous release is one patch earlier: 7.1.4 upgrades from 7.1.3, and 7.1.1 from 7.1. An X.Y.0 package needs `--previous`. Beta and RC zips are refused.
 
-The Markdown report has one row per install and, with `--locales`, one row per locale. When a walkthrough fails, its `result.json` and screenshots go to `<report>-artifacts/<version>-<row>/`.
+The Markdown report has one row per install, one md5 row and, with `--locales`, one row per locale. When a walkthrough fails, its `result.json` and screenshots go to `<report>-artifacts/<version>-<row>/`.
+
+The tool prints `PACKAGE_MD5=<version> <md5>` for the zip under test.
 
 Exit 0 when every row passed. Exit 2 when a row failed or the environment blocked it. Exit 1 when the script broke before or outside a test.
 
 ## How it works
 
+- Hashes the package zip and compares the md5 with the one published at `<zip URL>.md5`. A different or unreadable published md5 fails the md5 row, so a URL from a host with no `.md5` files always fails. Download such a zip and pass its local path. A local `--package` has no published md5, so the comparison is `n/a`.
 - Fetches the package's `X.Y` branch and trunk from the checkout's origin. The `X.Y` branch, as a temporary worktree, supplies the Docker environment (`env:start`, `env:cli`, `env:clean`). Trunk's `.version-support-php.json` supplies the newest PHP version for that line.
 - Runs `npm ci`, starts the environment, and serves the unzipped package from `package/` in the worktree.
 - Fresh install: `wp core install` on the package, then checks `wp core version`, the home page, and the login form, then runs `functional-smoke.js`.

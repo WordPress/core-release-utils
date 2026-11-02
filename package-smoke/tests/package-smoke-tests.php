@@ -155,6 +155,57 @@ check('Locale report follows the English phases', true, strpos($locale_report, '
 check('Locale report includes URL HTTP version and PASS', true, str_contains($locale_report, '| pt_BR | https://downloads.wordpress.org/release/pt_BR/wordpress-6.8.3.zip | HTTP download succeeded | 6.8.3 | pt_BR | PASS |'));
 check('Locale report includes missing local package and FAIL', true, str_contains($locale_report, '| HTTP download succeeded | 6.8.3 | missing | FAIL | Missing $wp_local_package: not a localized build.'));
 
+$md5_url = 'https://wordpress.org/wordpress-7.1.4.zip';
+$md5_file = temporary_path('md5');
+$md5_downloads = array();
+$md5_publish = static function (string $content) use (&$md5_downloads): callable {
+	return static function (string $url, string $destination) use ($content, &$md5_downloads): void {
+		$md5_downloads[] = $url;
+		file_put_contents($destination, $content);
+	};
+};
+$md5_match = package_smoke_md5_row('7.1.4', '9761e62677474639e95b6168ed0a650f', $md5_url, $md5_file, $md5_publish("9761E62677474639E95B6168ED0A650F\n"));
+check('Matching md5 passes', array('pass', 'passed'), array($md5_match['md5_check'], $md5_match['status']));
+check('Published md5 is read from <zip URL>.md5', array('https://wordpress.org/wordpress-7.1.4.zip.md5'), $md5_downloads);
+$md5_mismatch = package_smoke_md5_row('7.1.4', '9761e62677474639e95b6168ed0a650f', $md5_url, $md5_file, $md5_publish('00000000000000000000000000000000'));
+check('Different md5 fails', array('fail', 'failed'), array($md5_mismatch['md5_check'], $md5_mismatch['status']));
+check('Mismatch names both md5s', 'md5 mismatch: tested 9761e62677474639e95b6168ed0a650f, published 00000000000000000000000000000000.', $md5_mismatch['reason']);
+$md5_missing = package_smoke_md5_row('7.1.4', '9761e62677474639e95b6168ed0a650f', $md5_url, $md5_file,
+	static function (): void {
+		throw new RuntimeException('Unable to copy the package zip after 3 attempt(s): HTTP/1.1 404 Not Found');
+	});
+check('Missing published md5 fails', array('fail', 'failed', 'not read'), array($md5_missing['md5_check'], $md5_missing['status'], $md5_missing['published_md5']));
+check('Missing published md5 says why', true, str_starts_with($md5_missing['reason'], 'Unable to fetch the published md5:') && str_contains($md5_missing['reason'], '404'));
+$md5_junk = package_smoke_md5_row('7.1.4', '9761e62677474639e95b6168ed0a650f', $md5_url, $md5_file, $md5_publish('Release not found.'));
+check('A published md5 that is not an md5 fails', 'failed', $md5_junk['status']);
+if (is_file($md5_file)) {
+	unlink($md5_file);
+}
+$md5_local = package_smoke_md5_row('7.1.4', '9761e62677474639e95b6168ed0a650f', null, $md5_file, static fn() => throw new LogicException('No fetch for a local package.'));
+check('Local package records its md5 and compares n/a', array('9761e62677474639e95b6168ed0a650f', 'n/a', 'n/a', 'passed'), array($md5_local['md5'], $md5_local['published_md5'], $md5_local['md5_check'], $md5_local['status']));
+check('A local package run that passed counts every row as ran', 100, package_smoke_coverage_counts(array($package_rows[0], $md5_local))['percentage']);
+$md5_downloads = array();
+package_smoke_md5_row('7.1.4', '9761e62677474639e95b6168ed0a650f', $md5_url . '?dl=1#x', $md5_file, $md5_publish('9761e62677474639e95b6168ed0a650f'));
+check('The md5 URL drops the query string and fragment', array('https://wordpress.org/wordpress-7.1.4.zip.md5'), $md5_downloads);
+$md5_fetched = array();
+$md5_secret = package_smoke_md5_row('7.1.4', '9761e62677474639e95b6168ed0a650f', 'https://user:to@ken@mirror.example/wordpress-7.1.4.zip', $md5_file,
+	static function (string $url) use (&$md5_fetched): void {
+		$md5_fetched[] = $url;
+		throw new RuntimeException("copy({$url}): Failed to open stream: HTTP/1.1 404 Not Found");
+	});
+check('The md5 fetch keeps the credentials', array('https://user:to@ken@mirror.example/wordpress-7.1.4.zip.md5'), $md5_fetched);
+check('Credentials stay out of the reported md5 URL', 'https://mirror.example/wordpress-7.1.4.zip.md5', $md5_secret['md5_url']);
+check('Credentials stay out of the reason', false, str_contains($md5_secret['reason'], 'ken'));
+if (is_file($md5_file)) {
+	unlink($md5_file);
+}
+$md5_rows = array_merge(array_slice($package_rows, 0, 1), array($md5_mismatch));
+check('An md5 mismatch counts as a failed test', array('total' => 2, 'ran' => 2, 'percentage' => 100, 'passed' => 1, 'env-blocked' => 0, 'failed' => 1, 'ran_failed' => 1), package_smoke_coverage_counts($md5_rows));
+$md5_report = package_smoke_render_report('7.1.4', $md5_rows, 'test run');
+check('md5 report row', true, str_contains($md5_report, '| 9761e62677474639e95b6168ed0a650f | https://wordpress.org/wordpress-7.1.4.zip.md5 | 00000000000000000000000000000000 | FAIL | md5 mismatch:'));
+check('md5 row stays out of the install table', false, str_contains($md5_report, '| WordPress 7.1.4 package: md5 |'));
+check('md5 mismatch is listed as not passed', true, str_contains($md5_report, '- WordPress 7.1.4 package: md5: md5 mismatch:'));
+
 check('Canonical https remote normalizes', 'WordPress/wordpress-develop', normalize_github_remote('https://github.com/WordPress/wordpress-develop.git'));
 check('scp-style GitHub remote normalizes', 'WordPress/wordpress-develop', normalize_github_remote('git@github.com:WordPress/wordpress-develop.git'));
 check('Local mirror path falls back to its last two segments', 'WordPress/wordpress-develop', normalize_github_remote('/srv/mirrors/WordPress/wordpress-develop.git'));

@@ -569,6 +569,58 @@ function package_smoke_locale_row(
 	return $row;
 }
 
+/**
+ * Compare the tested zip's md5 with the one WordPress.org publishes at <zip URL>.md5.
+ * A local package has no published md5, so its comparison is n/a.
+ */
+function package_smoke_md5_row(
+	string $version,
+	string $md5,
+	?string $package_url,
+	string $destination,
+	?callable $download = null
+): array {
+	$download ??= 'package_smoke_copy_package';
+	$md5_url = null === $package_url ? null : preg_replace('/[?#].*$/', '', $package_url) . '.md5';
+	$row = array(
+		'test' => "WordPress {$version} package: md5",
+		'md5' => $md5,
+		// Keep any user:password@ out of the report.
+		'md5_url' => null === $md5_url ? 'n/a' : preg_replace('~^(https?://)[^/]*@~i', '$1', $md5_url),
+		'published_md5' => 'n/a',
+		'md5_check' => 'n/a',
+		'status' => 'passed',
+		'reason' => 'Local package: no published md5 to compare.',
+	);
+	if (null === $package_url) {
+		return $row;
+	}
+	$row['published_md5'] = 'not read';
+	$row['md5_check'] = 'fail';
+	$row['status'] = 'failed';
+	try {
+		try {
+			$download($md5_url, $destination);
+			$published = @file_get_contents($destination);
+		} catch (Throwable $error) {
+			throw new RuntimeException('Unable to fetch the published md5: ' . str_replace($md5_url, $row['md5_url'], $error->getMessage()));
+		}
+		if (false === $published || 1 !== preg_match('/^([a-f0-9]{32})\b/i', trim($published), $match)) {
+			throw new RuntimeException("The published md5 at {$row['md5_url']} is not an md5.");
+		}
+		$row['published_md5'] = strtolower($match[1]);
+		if ($row['published_md5'] !== strtolower($md5)) {
+			throw new RuntimeException("md5 mismatch: tested {$md5}, published {$row['published_md5']}.");
+		}
+		$row['md5_check'] = 'pass';
+		$row['status'] = 'passed';
+		$row['reason'] = 'All required checks passed.';
+	} catch (Throwable $error) {
+		$row['reason'] = $error->getMessage();
+	}
+	return $row;
+}
+
 function package_smoke_extract_package(string $path, string $worktree): void {
 	$zip = package_smoke_open_package($path);
 	try {
@@ -1082,6 +1134,7 @@ function package_smoke_coverage_counts(array $rows): array {
 		if (
 			in_array($row['e2e_smoke'] ?? '', array('pass', 'fail'), true)
 			|| in_array($row['locale_check'] ?? '', array('pass', 'fail'), true)
+			|| in_array($row['md5_check'] ?? '', array('pass', 'fail', 'n/a'), true)
 		) {
 			++$counts['ran'];
 			if ('failed' === $status) {
@@ -1190,7 +1243,7 @@ function package_smoke_render_report(
 	$report .= '| Test | PHP floor | UI runtime | Site up | E2E smoke |' . "\n";
 	$report .= '|---|---:|---:|---|---|' . "\n";
 	foreach ($rows as $row) {
-		if (isset($row['locale'])) {
+		if (isset($row['locale']) || isset($row['md5_check'])) {
 			continue;
 		}
 		$values = array();
@@ -1198,6 +1251,14 @@ function package_smoke_render_report(
 			$values[] = str_replace('|', '\\|', $row[$key] ?? '—');
 		}
 		$report .= '| ' . implode(' | ', $values) . ' |' . "\n";
+	}
+
+	foreach ($rows as $row) {
+		if (isset($row['md5_check'])) {
+			$report .= "\n## Package md5\n\n| md5 | Published md5 URL | Published md5 | Result | Reason |\n|---|---|---|---|---|\n";
+			$values = array($row['md5'], $row['md5_url'], $row['published_md5'], strtoupper($row['md5_check']), $row['reason']);
+			$report .= '| ' . implode(' | ', array_map(static fn(string $value): string => str_replace(array('|', "\r", "\n"), array('\\|', ' ', ' '), $value), $values)) . " |\n";
+		}
 	}
 
 	$locale_rows = array_filter($rows, static fn(array $row): bool => isset($row['locale']));
@@ -1519,6 +1580,15 @@ function package_smoke_package_run(
 		$download = $download_directory . '/wordpress-package.zip';
 		package_smoke_copy_package($options['package'], $download);
 		$version = package_smoke_read_package_version($download);
+		$md5 = md5_file($download);
+		echo "PACKAGE_MD5={$version} {$md5}\n";
+		$md5_row = package_smoke_md5_row(
+			$version,
+			$md5,
+			1 === preg_match('~^https?://~i', $options['package']) ? $options['package'] : null,
+			$download . '.md5'
+		);
+		echo 'Package md5 check: ' . strtoupper($md5_row['md5_check']) . ". {$md5_row['reason']}\n";
 		$previous = $options['previous'] ?? package_smoke_previous_url($version);
 		$target = release_line($version);
 		fetch_target($repo, $target);
@@ -1661,6 +1731,7 @@ function package_smoke_package_run(
 		$row['status'] = package_smoke_status($row);
 	}
 	unset($row);
+	$rows[] = $md5_row;
 	$locales = package_smoke_locales($options);
 	if ($locales) {
 		$locale_directory = temporary_worktree('wp-package-ui-download');
@@ -1698,6 +1769,8 @@ environment, smokes a fresh package install, resets to the previous release,
 upgrades with wp core update, and smokes again. Writes two rows per package,
 then cleans the environment and worktree. A must-use plugin disables automatic
 core updates. Reports env-blocked if served files change during a run.
+Prints PACKAGE_MD5=<version> <md5> and fails if a URL package's md5 differs
+from <URL>.md5.
 
 Required options:
   --repository=<owner/name>  Expected origin repository, such as WordPress/wordpress-develop.
