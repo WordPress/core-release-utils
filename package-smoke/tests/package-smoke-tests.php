@@ -87,22 +87,23 @@ check_throws('Zip traversal is rejected', static fn() => package_smoke_package_l
 check_throws('Backslash zip paths are rejected', static fn() => package_smoke_package_layout(array('wordpress/wp-includes/version.php', 'wordpress/..\\outside.php')));
 
 $package_rows = array(
-	array('branch' => 'WordPress 6.8.3 package: fresh install', 'fix_smoke' => 'skip', 'e2e_smoke' => 'pass', 'status' => 'passed', 'reason' => 'All required checks passed.'),
-	array('branch' => 'WordPress 6.8.3 package: upgrade from 6.8.2', 'fix_smoke' => 'skip', 'e2e_smoke' => 'fail', 'status' => 'failed', 'reason' => 'Page flow failed.'),
-	array('fix_smoke' => 'pass', 'e2e_smoke' => 'pass', 'status' => 'passed', 'reason' => 'All required checks passed.'),
-	array('fix_smoke' => 'skip', 'e2e_smoke' => 'env-blocked', 'status' => 'env-blocked'),
+	array('test' => 'WordPress 6.8.3 package: fresh install', 'e2e_smoke' => 'pass', 'status' => 'passed', 'reason' => 'All required checks passed.'),
+	array('test' => 'WordPress 6.8.3 package: upgrade from 6.8.2', 'e2e_smoke' => 'fail', 'status' => 'failed', 'reason' => 'Page flow failed.'),
+	array('e2e_smoke' => 'pass', 'status' => 'passed', 'reason' => 'All required checks passed.'),
+	array('e2e_smoke' => 'env-blocked', 'status' => 'env-blocked'),
 );
 check('E2E verdicts count once as ran; blocks do not', array(
 	'total' => 4, 'ran' => 3, 'percentage' => 75, 'passed' => 2, 'env-blocked' => 1, 'failed' => 1, 'ran_failed' => 1,
 ), package_smoke_coverage_counts($package_rows));
-$package_report = package_smoke_render_report('6.8.3', '', array_slice($package_rows, 0, 2), 'test run');
+$package_report = package_smoke_render_report('6.8.3', array_slice($package_rows, 0, 2), 'test run');
 check('Package report title', true, str_starts_with($package_report, '# WordPress 6.8.3 package UI smoke'));
-check('Package report allows an empty fix', true, str_contains($package_report, 'Fix: none (package mode)'));
+check('Package report has only the columns package mode fills', true, str_contains($package_report, "| Test | PHP floor | UI runtime | Site up | E2E smoke |\n"));
+check('Package report has no fix-smoke section', false, str_contains($package_report, 'Fix'));
 check('Package report lists the failed row', true, str_contains($package_report, '- WordPress 6.8.3 package: upgrade from 6.8.2: Page flow failed.'));
 
 check('Row with a failed check fails', 'failed', package_smoke_status(array('site_up' => 'pass', 'e2e_smoke' => 'fail')));
 check('Blocked row without a failure is env-blocked', 'env-blocked', package_smoke_status(array('site_up' => 'env-blocked', 'e2e_smoke' => 'skip')));
-check('Skipped build and fix smoke still pass', 'passed', package_smoke_status(array('build' => 'skip', 'site_up' => 'pass', 'fix_smoke' => 'skip', 'e2e_smoke' => 'pass')));
+check('Skipped build and fix smoke still pass', 'passed', package_smoke_status(array('build' => 'skip', 'site_up' => 'pass', 'e2e_smoke' => 'pass')));
 
 $copy_retry_destination = temporary_path('copy-retry');
 $copy_retry_error = error_of(static fn() => package_smoke_copy_package('http://127.0.0.1:1/wordpress-6.8.3.zip', $copy_retry_destination, 2, 0));
@@ -149,7 +150,7 @@ check('Wrong local package explains expected and actual locales', 'Locale mismat
 
 $locale_rows = array_merge(array_slice($package_rows, 0, 2), array($locale_pass, $locale_english, $locale_404, $locale_mismatch));
 check('Locale outcomes count alongside English phases', array('total' => 6, 'ran' => 6, 'percentage' => 100, 'passed' => 2, 'env-blocked' => 0, 'failed' => 4, 'ran_failed' => 4), package_smoke_coverage_counts($locale_rows));
-$locale_report = package_smoke_render_report('6.8.3', '', $locale_rows, 'test run');
+$locale_report = package_smoke_render_report('6.8.3', $locale_rows, 'test run');
 check('Locale report follows the English phases', true, strpos($locale_report, 'Localized packages') > strpos($locale_report, 'upgrade from 6.8.2'));
 check('Locale report includes URL HTTP version and PASS', true, str_contains($locale_report, '| pt_BR | https://downloads.wordpress.org/release/pt_BR/wordpress-6.8.3.zip | HTTP download succeeded | 6.8.3 | pt_BR | PASS |'));
 check('Locale report includes missing local package and FAIL', true, str_contains($locale_report, '| HTTP download succeeded | 6.8.3 | missing | FAIL | Missing $wp_local_package: not a localized build.'));
@@ -210,7 +211,7 @@ check('Container npm runs as the user with the cache mounted', array(
 ), package_smoke_container_npm_command('/wt', '/cache', array('LOCAL_PORT' => '8889'), array('ci'), 'node:14-bullseye', 'linux/amd64', 501, 20));
 check('Lockfile search finds a nested package', true, package_smoke_lockfile_has_package(array('dependencies' => array('a' => array('dependencies' => array('node-sass' => array('version' => '4.0.0'))))), 'node-sass'));
 check('Lockfile search needs a version', false, package_smoke_lockfile_has_package(array('node-sass' => array()), 'node-sass'));
-check('PHP target uses the release-line matrix', array('floor' => '7.4', 'floor_source' => 'release-line-matrix', 'versions' => array('7.4', '8.4')), package_smoke_php_target(array('7.1' => array('7.4', '8.4')), array('7.1' => '7.4'), '7.1'));
+check('PHP target uses the release-line matrix', array('floor' => '7.4', 'versions' => array('7.4', '8.4')), package_smoke_php_target(array('7.1' => array('7.4', '8.4')), array('7.1' => '7.4'), '7.1'));
 check_throws('PHP target needs a matrix entry', static fn() => package_smoke_php_target(array(), array(), '7.1'));
 check_throws('Commands need env:cli', static fn() => package_smoke_commands(array('env:start' => 'x', 'env:install' => 'x', 'build' => 'x', 'env:clean' => 'x'), '/nonexistent'));
 check('Commands prefer env:clean', 'env:clean', package_smoke_commands(array('env:start' => 'x', 'env:install' => 'x', 'env:cli' => 'x', 'build' => 'x', 'env:clean' => 'x', 'env:stop' => 'x'), '/nonexistent')['clean']);

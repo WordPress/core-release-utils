@@ -530,7 +530,7 @@ function package_smoke_locale_row(
 	$download ??= 'package_smoke_copy_package';
 	$read ??= 'package_smoke_read_package_details';
 	$row = array(
-		'branch' => "WordPress {$version} package: {$locale}",
+		'test' => "WordPress {$version} package: {$locale}",
 		'locale' => $locale,
 		'url' => 'https://downloads.wordpress.org/release/' . rawurlencode($locale) . '/wordpress-' . rawurlencode($version) . '.zip',
 		'http' => 'not requested',
@@ -627,7 +627,7 @@ function package_smoke_php_floors(string $repo, string $release_line): array {
 /**
  * @param array<string,array<int,string>> $versions
  * @param array<string,string>            $floors
- * @return array{floor:string,floor_source:string,versions:array<int,string>}
+ * @return array{floor:string,versions:array<int,string>}
  */
 function package_smoke_php_target(array $versions, array $floors, string $target): array {
 	if (!array_key_exists($target, $versions) || !array_key_exists($target, $floors)) {
@@ -635,9 +635,8 @@ function package_smoke_php_target(array $versions, array $floors, string $target
 	}
 
 	return array(
-		'floor'        => $floors[$target],
-		'floor_source' => 'release-line-matrix',
-		'versions'     => $versions[$target],
+		'floor'    => $floors[$target],
+		'versions' => $versions[$target],
 	);
 }
 
@@ -1041,12 +1040,12 @@ function package_smoke_functional_result(string $path): array {
 }
 
 function package_smoke_status(array $row): string {
-	foreach (array('build', 'site_up', 'fix_smoke', 'e2e_smoke') as $field) {
+	foreach (array('site_up', 'e2e_smoke') as $field) {
 		if ('fail' === ($row[$field] ?? '')) {
 			return 'failed';
 		}
 	}
-	foreach (array('build', 'site_up', 'fix_smoke', 'e2e_smoke') as $field) {
+	foreach (array('site_up', 'e2e_smoke') as $field) {
 		if ('env-blocked' === ($row[$field] ?? '')) {
 			return 'env-blocked';
 		}
@@ -1074,8 +1073,7 @@ function package_smoke_coverage_counts(array $rows): array {
 			++$counts[$status];
 		}
 		if (
-			in_array($row['fix_smoke'] ?? '', array('pass', 'fail'), true)
-			|| in_array($row['e2e_smoke'] ?? '', array('pass', 'fail'), true)
+			in_array($row['e2e_smoke'] ?? '', array('pass', 'fail'), true)
 			|| in_array($row['locale_check'] ?? '', array('pass', 'fail'), true)
 		) {
 			++$counts['ran'];
@@ -1190,7 +1188,6 @@ function package_smoke_command_detail(string $output, string $worktree, string $
  */
 function package_smoke_render_report(
 	string $release,
-	?string $fix,
 	array $rows,
 	string $generated,
 	?int $elapsed_seconds = null
@@ -1199,17 +1196,14 @@ function package_smoke_render_report(
 
 	$report  = "# WordPress {$release} package UI smoke\n\n";
 	$report .= "Generated: {$generated}\n\n";
-	if (null !== $fix) {
-		$report .= '' === $fix ? "Fix: none (package mode)\n\n" : "Fix: PR #{$fix}\n\n";
-	}
-	$report .= '| Branch | Floor | Floor source | UI runtime | Build | Site up | Fix smoke | E2E smoke |' . "\n";
-	$report .= '|---|---:|---|---:|---|---|---|---|' . "\n";
+	$report .= '| Test | PHP floor | UI runtime | Site up | E2E smoke |' . "\n";
+	$report .= '|---|---:|---:|---|---|' . "\n";
 	foreach ($rows as $row) {
 		if (isset($row['locale'])) {
 			continue;
 		}
 		$values = array();
-		foreach (array('branch', 'floor', 'floor_source', 'runtime', 'build', 'site_up', 'fix_smoke', 'e2e_smoke') as $key) {
+		foreach (array('test', 'floor', 'runtime', 'site_up', 'e2e_smoke') as $key) {
 			$values[] = str_replace('|', '\\|', $row[$key] ?? '—');
 		}
 		$report .= '| ' . implode(' | ', $values) . ' |' . "\n";
@@ -1225,8 +1219,8 @@ function package_smoke_render_report(
 	}
 
 	$report .= "\n## Summary\n\n";
-	$report .= "- Ran: {$counts['ran']} of {$counts['total']} branches ({$counts['percentage']}%)\n";
-	$report .= "- Failed: {$counts['ran_failed']} of {$counts['ran']} branches that ran\n";
+	$report .= "- Ran: {$counts['ran']} of {$counts['total']} tests ({$counts['percentage']}%)\n";
+	$report .= "- Failed: {$counts['ran_failed']} of {$counts['ran']} tests that ran\n";
 	$report .= "- Passed: {$counts['passed']}\n";
 	$report .= "- Environment blocked: {$counts['env-blocked']}\n";
 	$report .= "- Total failures: {$counts['failed']}\n";
@@ -1234,22 +1228,6 @@ function package_smoke_render_report(
 		$report .= '- Wall-clock time: ' . package_smoke_format_duration($elapsed_seconds) . "\n";
 	}
 
-	if (null !== $fix) {
-		$failed_fix = array_values(
-			array_filter(
-				$rows,
-				static fn(array $row): bool => 'fail' === ($row['fix_smoke'] ?? '')
-			)
-		);
-		$report .= "\n## Fix-smoke failures\n\n";
-		if (!$failed_fix) {
-			$report .= "None.\n";
-		} else {
-			foreach ($failed_fix as $row) {
-				$report .= "- {$row['branch']}: {$row['reason']}\n";
-			}
-		}
-	}
 
 	$blocked = array_values(
 		array_filter(
@@ -1261,12 +1239,12 @@ function package_smoke_render_report(
 			)
 		)
 	);
-	$report .= "\n## Branches not fully tested\n\n";
+	$report .= "\n## Tests not fully passed\n\n";
 	if (!$blocked) {
 		$report .= "None.\n";
 	} else {
 		foreach ($blocked as $row) {
-			$report .= "- {$row['branch']}: {$row['reason']}\n";
+			$report .= "- {$row['test']}: {$row['reason']}\n";
 		}
 	}
 
@@ -1286,7 +1264,7 @@ function package_smoke_render_report(
 		$report .= "None.\n";
 	} else {
 		foreach ($notes as $row) {
-			$report .= "- {$row['branch']}: {$row['reason']}\n";
+			$report .= "- {$row['test']}: {$row['reason']}\n";
 		}
 	}
 
@@ -1475,10 +1453,8 @@ function package_smoke_verify_source(string $directory, array $before, array &$r
 	if (null === $reason) {
 		return;
 	}
-	foreach (array('fix_smoke', 'e2e_smoke') as $field) {
-		if (in_array($row[$field], array('pass', 'fail'), true)) {
-			$row[$field] = 'env-blocked';
-		}
+	if (in_array($row['e2e_smoke'], array('pass', 'fail'), true)) {
+		$row['e2e_smoke'] = 'env-blocked';
 	}
 	$row['site_up'] = 'env-blocked';
 	$reasons[] = $reason;
@@ -1558,13 +1534,10 @@ function package_smoke_package_run(
 		package_smoke_require_older($previous_version, $version);
 		foreach (array('fresh install', "upgrade from {$previous_version}") as $phase) {
 			$rows[] = array(
-				'branch' => "WordPress {$version} package: {$phase}",
+				'test' => "WordPress {$version} package: {$phase}",
 				'floor' => $php['floor'],
-				'floor_source' => $php['floor_source'],
 				'runtime' => $runtime,
-				'build' => 'skip',
 				'site_up' => 'env-blocked',
-				'fix_smoke' => 'skip',
 				'e2e_smoke' => 'skip',
 				'status' => 'env-blocked',
 				'reason' => 'Test did not complete.',
@@ -1597,7 +1570,7 @@ function package_smoke_package_run(
 			throw new RuntimeException('package-environment-blocked');
 		}
 		foreach ($rows as $index => &$row) {
-			echo "Testing {$row['branch']} at UI PHP {$runtime}.\n";
+			echo "Testing {$row['test']} at UI PHP {$runtime}.\n";
 			$reasons = null === $start_condition ? array() : array($start_condition);
 			$source_hashes = null;
 			try {
@@ -1808,7 +1781,7 @@ function main(array $argv): int {
 		$generated = (new DateTimeImmutable('now', new DateTimeZone('America/Phoenix')))->format('Y-m-d H:i T');
 		$elapsed_seconds = (int) round((hrtime(true) - $run_started_at) / 1_000_000_000);
 		package_smoke_write_report($options['output'], package_smoke_render_report(
-			$result['version'], '', $result['rows'], $generated, $elapsed_seconds
+			$result['version'], $result['rows'], $generated, $elapsed_seconds
 		));
 		$counts = package_smoke_coverage_counts($result['rows']);
 		echo "Summary: ran {$counts['ran']} of {$counts['total']} package phases; passed {$counts['passed']}, "
