@@ -1089,35 +1089,19 @@ function package_smoke_coverage_counts(array $rows): array {
 }
 
 /**
- * @return array{build:string,start:string,install:string,cli:string,clean:string,e2e:?string,e2e_path:?string}
+ * @return array{start:string,cli:string,clean:string}
  */
-function package_smoke_commands(array $scripts, string $worktree): array {
-	foreach (array('env:start', 'env:install', 'env:cli') as $required) {
+function package_smoke_commands(array $scripts): array {
+	foreach (array('env:start', 'env:cli') as $required) {
 		if (!isset($scripts[$required])) {
 			throw new RuntimeException("The branch package.json has no {$required} script.");
 		}
-	}
-	$build = isset($scripts['build:dev']) ? 'build:dev' : (isset($scripts['build']) ? 'build' : null);
-	if (null === $build) {
-		throw new RuntimeException('The branch package.json has no build:dev or build script.');
 	}
 	$clean = isset($scripts['env:clean']) ? 'env:clean' : (isset($scripts['env:stop']) ? 'env:stop' : null);
 	if (null === $clean) {
 		throw new RuntimeException('The branch package.json has no env:clean or env:stop script.');
 	}
-
-	$e2e_path = $worktree . '/tests/e2e/specs/hello.test.js';
-	return array(
-		'build'   => $build,
-		'start'   => 'env:start',
-		'install' => 'env:install',
-		'cli'     => 'env:cli',
-		'clean'   => $clean,
-		'e2e'     => isset($scripts['test:e2e']) && is_file($e2e_path) ? 'test:e2e' : null,
-		'e2e_path' => isset($scripts['test:e2e']) && is_file($e2e_path)
-			? 'tests/e2e/specs/hello.test.js'
-			: null,
-	);
+	return array('start' => 'env:start', 'cli' => 'env:cli', 'clean' => $clean);
 }
 
 function package_smoke_env_value(string $worktree, string $name, string $default): string {
@@ -1543,7 +1527,7 @@ function package_smoke_package_run(
 				'reason' => 'Test did not complete.',
 			);
 		}
-		$commands = package_smoke_commands(package_smoke_package_scripts($worktree), $worktree);
+		$commands = package_smoke_commands(package_smoke_package_scripts($worktree));
 		$toolchain = package_smoke_build_toolchain($worktree);
 		$port = $options['port'] ?? package_smoke_env_value($worktree, 'LOCAL_PORT', '8889');
 		if (1 !== preg_match('/^\d{2,5}$/', $port)) {

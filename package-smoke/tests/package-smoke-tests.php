@@ -213,8 +213,9 @@ check('Lockfile search finds a nested package', true, package_smoke_lockfile_has
 check('Lockfile search needs a version', false, package_smoke_lockfile_has_package(array('node-sass' => array()), 'node-sass'));
 check('PHP target uses the release-line matrix', array('floor' => '7.4', 'versions' => array('7.4', '8.4')), package_smoke_php_target(array('7.1' => array('7.4', '8.4')), array('7.1' => '7.4'), '7.1'));
 check_throws('PHP target needs a matrix entry', static fn() => package_smoke_php_target(array(), array(), '7.1'));
-check_throws('Commands need env:cli', static fn() => package_smoke_commands(array('env:start' => 'x', 'env:install' => 'x', 'build' => 'x', 'env:clean' => 'x'), '/nonexistent'));
-check('Commands prefer env:clean', 'env:clean', package_smoke_commands(array('env:start' => 'x', 'env:install' => 'x', 'env:cli' => 'x', 'build' => 'x', 'env:clean' => 'x', 'env:stop' => 'x'), '/nonexistent')['clean']);
+check_throws('Commands need env:cli', static fn() => package_smoke_commands(array('env:start' => 'x', 'env:clean' => 'x')));
+check('Commands prefer env:clean', 'env:clean', package_smoke_commands(array('env:start' => 'x', 'env:cli' => 'x', 'env:clean' => 'x', 'env:stop' => 'x'))['clean']);
+check('Commands need no build or env:install script', array('start' => 'env:start', 'cli' => 'env:cli', 'clean' => 'env:stop'), package_smoke_commands(array('env:start' => 'x', 'env:cli' => 'x', 'env:stop' => 'x')));
 check('Release line from a patch version', '7.1', release_line('7.1.4'));
 check('Git commands turn off auto maintenance', array('git', '-c', 'maintenance.auto=false', 'fetch'), git_command_without_auto_maintenance(array('git', 'fetch')));
 check('Other commands are unchanged', array('npm', 'ci'), git_command_without_auto_maintenance(array('npm', 'ci')));
