@@ -1012,20 +1012,27 @@ function package_smoke_functional_result(string $path): array {
 				continue;
 			}
 			$slug = is_string($flow['slug'] ?? null) ? $flow['slug'] : 'unknown page';
-			if ('OK' !== ($flow['verdict'] ?? null)) {
-				$problems[] = "{$slug} returned " . ($flow['verdict'] ?? 'an unknown verdict');
+			$verdict = $flow['verdict'] ?? null;
+			if ('OK' !== $verdict) {
+				$problems[] = "{$slug} returned " . (is_string($verdict) ? $verdict : 'an unknown verdict');
 			}
 			if (0 !== ($flow['console_errors'] ?? 0)) {
-				$messages = array_values(
-					array_filter(
-						$flow['console_error_messages'] ?? array(),
-						'is_string'
-					)
-				);
+				$messages = is_array($flow['console_error_messages'] ?? null)
+					? array_values(array_filter($flow['console_error_messages'], 'is_string'))
+					: array();
 				$detail = $messages ? ': ' . implode(' | ', array_slice($messages, 0, 3)) : '';
 				$problems[] = "{$slug} logged console errors{$detail}";
-				foreach ($flow['script_failures'] ?? array() as $script_failure) {
-					$problems[] = "{$slug} script response: {$script_failure['url']} ({$script_failure['status']} {$script_failure['content_type']})";
+				$script_failures = $flow['script_failures'] ?? array();
+				foreach (is_array($script_failures) ? $script_failures : array(null) as $script_failure) {
+					$fields = is_array($script_failure) ? array_map(
+						static fn(string $key): mixed => $script_failure[$key] ?? null,
+						array('url', 'status', 'content_type')
+					) : array();
+					if (array(true, true, true) !== array_map('is_scalar', $fields)) {
+						$problems[] = "{$slug} recorded an invalid script failure";
+						continue;
+					}
+					$problems[] = "{$slug} script response: {$fields[0]} ({$fields[1]} {$fields[2]})";
 				}
 			}
 		}
@@ -1292,6 +1299,19 @@ function package_smoke_npm(
 }
 
 /**
+ * Point host npm at --npm-cache. Without it, keep the host's own cache: the
+ * temporary cache starts empty, so every run would download every package.
+ *
+ * @param array<string,string>             $environment
+ * @param array{path:string,temporary:bool} $cache
+ * @return array<string,string>
+ */
+function package_smoke_host_npm_environment(array $environment, array $cache): array {
+	return $cache['temporary'] ? $environment : $environment + array('npm_config_cache' => $cache['path']);
+}
+
+/**
+ * @param array{path:string,temporary:bool}         $cache
  * @param array<string,string>                      $environment
  * @param array<int,string>                         $arguments
  * @param array{type:string,image:?string,platform:?string} $toolchain
@@ -1299,14 +1319,15 @@ function package_smoke_npm(
  */
 function package_smoke_build_npm(
 	string $worktree,
-	string $cache_directory,
+	array $cache,
 	array $environment,
 	array $arguments,
 	array $toolchain
 ): array {
 	if ('container' !== $toolchain['type']) {
-		return package_smoke_npm($worktree, $environment, $arguments);
+		return package_smoke_npm($worktree, package_smoke_host_npm_environment($environment, $cache), $arguments);
 	}
+	$cache_directory = $cache['path'];
 	$user_id = function_exists('posix_geteuid') ? posix_geteuid() : getmyuid();
 	$group_id = function_exists('posix_getegid') ? posix_getegid() : getmygid();
 	return run_command(
@@ -1541,7 +1562,7 @@ function package_smoke_package_run(
 			'LOCAL_DB_VERSION' => package_smoke_env_value($worktree, 'LOCAL_DB_VERSION', 'latest'),
 		);
 		$npm_cache_config = package_smoke_prepare_npm_cache($options['npm-cache'] ?? null);
-		$dependencies = package_smoke_build_npm($worktree, $npm_cache_config['path'], array(), array('ci'), $toolchain);
+		$dependencies = package_smoke_build_npm($worktree, $npm_cache_config, array(), array('ci'), $toolchain);
 		if (0 !== $dependencies['code']) {
 			$reason = 'npm ci: ' . package_smoke_detail($dependencies, $worktree, $repo);
 			throw new RuntimeException('package-environment-blocked');

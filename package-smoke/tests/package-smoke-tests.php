@@ -202,7 +202,19 @@ check('Failed login, fatal page, and logged fatal are all named', array('ok' => 
 check('No flows fails', array('ok' => false, 'reason' => 'no page flows were recorded.'), $functional(array('login' => array('logged_in' => true), 'logout' => array('confirmed' => true), 'flows' => array())));
 unlink($result_dir . '/result.json');
 check('Missing result.json fails', 'The functional smoke did not write result.json.', package_smoke_functional_result($result_dir . '/result.json')['reason']);
+$bad_shapes = $functional(array('login' => array('logged_in' => true), 'logout' => array('confirmed' => true), 'flows' => array(
+	array('slug' => 'a', 'verdict' => array('x'), 'console_errors' => 0),
+	array('slug' => 'b', 'verdict' => 'OK', 'console_errors' => 1, 'console_error_messages' => 'oops', 'script_failures' => array('bad')),
+	array('slug' => 'c', 'verdict' => 'OK', 'console_errors' => 1, 'script_failures' => 'bad'),
+	array('slug' => 'd', 'verdict' => 'OK', 'console_errors' => 1, 'script_failures' => array(array('url' => 'u.js', 'status' => 404, 'content_type' => 'text/html'))),
+)));
+check('Damaged result.json fails each row with a clear reason', array('ok' => false, 'reason' => 'a returned an unknown verdict; b logged console errors; b recorded an invalid script failure; c logged console errors; c recorded an invalid script failure; d logged console errors; d script response: u.js (404 text/html).'), $bad_shapes);
+check('An unchecked page fails', false, $functional(array('login' => array('logged_in' => true), 'logout' => array('confirmed' => true), 'flows' => array(array('verdict' => 'UNCHECKED') + $flow)))['ok']);
+unlink($result_dir . '/result.json');
 rmdir($result_dir);
+
+check('Host npm keeps its own cache without --npm-cache', array('A' => '1'), package_smoke_host_npm_environment(array('A' => '1'), array('path' => '/tmp/x', 'temporary' => true)));
+check('Host npm uses --npm-cache', array('A' => '1', 'npm_config_cache' => '/cache'), package_smoke_host_npm_environment(array('A' => '1'), array('path' => '/cache', 'temporary' => false)));
 
 check('Container npm runs as the user with the cache mounted', array(
 	'docker', 'run', '--rm', '--platform=linux/amd64', '--user=501:20', '--volume=/wt:/workspace', '--volume=/cache:/tmp/.npm', '--workdir=/workspace',

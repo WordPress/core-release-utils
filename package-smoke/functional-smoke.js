@@ -92,11 +92,12 @@ const ADMIN_FLOWS = [
         needsBuild: /without JavaScript and CSS files/i.test(text),
         snippet: text.replace(/\s+/g, ' ').slice(0, 120),
       };
-    }).catch(() => ({}));
+    }).catch(() => null);
     await page.screenshot({ path: `${OUT}/${slug}.png` }).catch(() => {});
     page.off('console', onmsg); page.off('pageerror', onerr); page.off('response', onresponse);
-    const verdict = (status === 200 && !info.fatal && !info.needsBuild)
-      ? 'OK' : (info.needsBuild ? 'NEEDS-BUILD' : (info.fatal ? 'FATAL' : `HTTP ${status}`));
+    // A page that could not be read was never checked, so it must not pass.
+    const verdict = info === null ? 'UNCHECKED' : ((status === 200 && !info.fatal && !info.needsBuild)
+      ? 'OK' : (info.needsBuild ? 'NEEDS-BUILD' : (info.fatal ? 'FATAL' : `HTTP ${status}`)));
     out.flows.push({
       slug,
       path,
