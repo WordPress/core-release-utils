@@ -174,7 +174,7 @@ function verbose_log(string $message): void {
 	}
 }
 
-/** Make a private (0700) directory under the system temporary directory. */
+/** Make a temporary directory, readable only by its owner (0700), under the system temporary directory. */
 function temporary_worktree(string $prefix): string {
 	$base = realpath(sys_get_temp_dir());
 	if (false === $base) {
@@ -182,7 +182,7 @@ function temporary_worktree(string $prefix): string {
 	}
 	$path = $base . '/' . $prefix . '-' . bin2hex(random_bytes(6));
 	if (!mkdir($path, 0700)) {
-		throw new RuntimeException("Unable to create a private worktree directory at {$path}.");
+		throw new RuntimeException("Unable to create a temporary worktree directory at {$path}.");
 	}
 	return $path;
 }
@@ -354,7 +354,7 @@ function package_smoke_harness_path(): string {
 function package_smoke_package_version(string $content): string {
 	if (1 !== preg_match('/^\s*\$wp_version\s*=\s*([\'\"])(\d+\.\d+(?:\.\d+)?)\1\s*;/m', $content, $match)) {
 		if (1 === preg_match('/^\s*\$wp_version\s*=\s*([\'\"])(\d+\.\d+(?:\.\d+)?-[A-Za-z0-9.-]+)\1\s*;/m', $content, $match)) {
-			throw new InvalidArgumentException("The package version {$match[2]} is a pre-release; package mode tests stable release zips only.");
+			throw new InvalidArgumentException("The package version {$match[2]} is a pre-release; this tool tests stable release zips only.");
 		}
 		throw new InvalidArgumentException('The package version.php has no valid $wp_version assignment.');
 	}

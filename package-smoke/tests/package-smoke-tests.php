@@ -41,7 +41,7 @@ check('Package version comes from the assignment', '6.8.3', package_smoke_packag
 check('Initial public release has no patch suffix', '6.8', package_smoke_package_version("<?php\n\$wp_version = '6.8';\n"));
 check_throws('Missing package version is rejected', static fn() => package_smoke_package_version('<?php'));
 foreach (array('6.8-beta3', '6.8-RC1', '6.8.3-beta1') as $prerelease) {
-	check("Pre-release {$prerelease} is named", "The package version {$prerelease} is a pre-release; package mode tests stable release zips only.", error_of(static fn() => package_smoke_package_version("<?php\n\$wp_version = '{$prerelease}';\n"))?->getMessage());
+	check("Pre-release {$prerelease} is named", "The package version {$prerelease} is a pre-release; this tool tests stable release zips only.", error_of(static fn() => package_smoke_package_version("<?php\n\$wp_version = '{$prerelease}';\n"))?->getMessage());
 }
 check('Unquoted junk keeps the generic message', 'The package version.php has no valid $wp_version assignment.', error_of(static fn() => package_smoke_package_version("<?php\n\$wp_version = 'next';\n"))?->getMessage());
 
@@ -97,13 +97,13 @@ check('E2E verdicts count once as ran; blocks do not', array(
 ), package_smoke_coverage_counts($package_rows));
 $package_report = package_smoke_render_report('6.8.3', array_slice($package_rows, 0, 2), 'test run');
 check('Package report title', true, str_starts_with($package_report, '# WordPress 6.8.3 package UI smoke'));
-check('Package report has only the columns package mode fills', true, str_contains($package_report, "| Test | PHP floor | UI runtime | Site up | E2E smoke |\n"));
+check('Package report has only the columns this tool fills', true, str_contains($package_report, "| Test | PHP floor | UI runtime | Site up | E2E smoke |\n"));
 check('Package report has no fix-smoke section', false, str_contains($package_report, 'Fix'));
 check('Package report lists the failed row', true, str_contains($package_report, '- WordPress 6.8.3 package: upgrade from 6.8.2: Page flow failed.'));
 
 check('Row with a failed check fails', 'failed', package_smoke_status(array('site_up' => 'pass', 'e2e_smoke' => 'fail')));
 check('Blocked row without a failure is env-blocked', 'env-blocked', package_smoke_status(array('site_up' => 'env-blocked', 'e2e_smoke' => 'skip')));
-check('Skipped build and fix smoke still pass', 'passed', package_smoke_status(array('build' => 'skip', 'site_up' => 'pass', 'e2e_smoke' => 'pass')));
+check('Site up and walkthrough passed is a pass', 'passed', package_smoke_status(array('site_up' => 'pass', 'e2e_smoke' => 'pass')));
 
 $copy_retry_destination = temporary_path('copy-retry');
 $copy_retry_error = error_of(static fn() => package_smoke_copy_package('http://127.0.0.1:1/wordpress-6.8.3.zip', $copy_retry_destination, 2, 0));
@@ -164,7 +164,7 @@ check('A token in a query string is refused', null, normalize_github_remote('htt
 
 check('Parser accepts both value forms', array('package' => 'a.zip', 'output' => 'r.md', 'verbose' => false), parse_cli_options(array('x', '--package=a.zip', '--output', 'r.md', '--verbose'), array('package:', 'output:', 'verbose')));
 check('Repeated options become a list', array('package' => array('a.zip', 'b.zip')), parse_cli_options(array('x', '--package=a.zip', '--package=b.zip'), array('package:')));
-check('Branch-mode options are unknown', 'Unknown option: --release', error_of(static fn() => parse_cli_options(array('x', '--release=7.1.4'), array('package:')))?->getMessage());
+check('Unknown options are refused', 'Unknown option: --release', error_of(static fn() => parse_cli_options(array('x', '--release=7.1.4'), array('package:')))?->getMessage());
 
 check('Artifact directory drops the .md suffix', '/tmp/report-artifacts/6.8.3-0', package_smoke_artifact_directory('/tmp/report.md', '6.8.3-0'));
 check('Unchanged files give no reason', null, package_smoke_source_change_reason(array('wp-includes/version.php' => 'a', 'wp-settings.php' => 'b'), array('wp-includes/version.php' => 'a', 'wp-settings.php' => 'b')));

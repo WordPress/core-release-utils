@@ -2,8 +2,7 @@
 //
 // Walks the key user flows on a RUNNING install and records, per page: HTTP
 // status, a fatal/critical-error marker, console-error count, and a 2x
-// screenshot. This is a "does the site load and work as a user" check, not a
-// security test.
+// screenshot. This checks that the site loads and works for a user.
 // Each flow records up to 10 script_failures with URL, status, and content type.
 //
 // Requires Playwright. Install it standalone and point PW_PATH at it.
