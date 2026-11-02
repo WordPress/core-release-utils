@@ -441,7 +441,7 @@ function package_smoke_copy_package(string $source, string $destination, int $at
 	if (1 === preg_match('~^https?://~i', $source)) {
 		$context = stream_context_create(array('http' => array(
 			'timeout' => 60,
-			'user_agent' => 'WordPress security-release UI smoke',
+			'user_agent' => 'WordPress package smoke',
 		)));
 	} else {
 		$source = realpath($source);
@@ -786,7 +786,7 @@ function package_smoke_remove_temporary_directory(string $path, string $prefix):
 function package_smoke_prepare_npm_cache(?string $path): array {
 	$temporary = null === $path;
 	if ($temporary) {
-		$path = temporary_worktree('wp-backport-ui-npm-cache');
+		$path = temporary_worktree('wp-package-smoke-npm-cache');
 	} elseif (
 		'' === trim($path)
 		|| !str_starts_with($path, DIRECTORY_SEPARATOR)
@@ -886,7 +886,7 @@ function package_smoke_disable_core_updates(string $directory): void {
 	if (!is_dir($plugins) && !@mkdir($plugins, 0755, true) && !is_dir($plugins)) {
 		throw new RuntimeException('Unable to create the must-use plugin directory for disabling automatic core updates.');
 	}
-	if (false === @file_put_contents($plugins . '/security-release-no-core-updates.php', package_smoke_no_core_updates_plugin())) {
+	if (false === @file_put_contents($plugins . '/package-smoke-no-core-updates.php', package_smoke_no_core_updates_plugin())) {
 		throw new RuntimeException('Unable to write the must-use plugin that disables automatic core updates.');
 	}
 }
@@ -1197,8 +1197,7 @@ function package_smoke_render_report(
 ): string {
 	$counts = package_smoke_coverage_counts($rows);
 
-	$mode = '' === $fix ? 'package' : 'backport';
-	$report  = "# WordPress {$release} {$mode} UI smoke\n\n";
+	$report  = "# WordPress {$release} package UI smoke\n\n";
 	$report .= "Generated: {$generated}\n\n";
 	if (null !== $fix) {
 		$report .= '' === $fix ? "Fix: none (package mode)\n\n" : "Fix: PR #{$fix}\n\n";
@@ -1383,7 +1382,7 @@ function package_smoke_http(string $url, array $needles, int $attempts = 30): ar
 				'ignore_errors'   => true,
 				'max_redirects'   => 5,
 				'timeout'         => 5,
-				'user_agent'      => 'WordPress security-release UI smoke',
+				'user_agent'      => 'WordPress package smoke',
 			),
 		)
 	);
@@ -1675,7 +1674,7 @@ function package_smoke_package_run(
 			} finally {
 				package_smoke_remove_temporary_directory($download_directory, 'wp-package-ui-download-');
 				if (null !== $npm_cache_config && $npm_cache_config['temporary']) {
-					package_smoke_remove_temporary_directory($npm_cache_config['path'], 'wp-backport-ui-npm-cache-');
+					package_smoke_remove_temporary_directory($npm_cache_config['path'], 'wp-package-smoke-npm-cache-');
 				}
 			}
 		}
