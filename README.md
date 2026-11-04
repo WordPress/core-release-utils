@@ -15,7 +15,10 @@ This repo holds core WordPress release tooling that is not tied to a security em
 - `svn-tags/`: generates or verifies release tag commands from SVN branch versions, checking for existing tags, unbumped versions, and recent commits before tagging. Audits landed tags too.
 - `svnmergecheck/`: verifies that `svn merge --record-only` recorded every named trunk revision in `svn:mergeinfo` before you commit, and warns to commit the whole working copy rather than a path list.
 - `package-smoke/`: smoke-tests one built WordPress zip in a Docker site, as a fresh install and as an upgrade from the previous release, with a Playwright walkthrough of each.
+- `verify-package-matches-source/`: checks that a built WordPress zip matches the `src/` files of its wordpress-develop tag, apart from the changes the build makes on purpose, and names each file that differs.
 - `ghpatch/`: applies a GitHub pull request diff to a Subversion working copy with `svn patch`, so new files are scheduled for add, and fails loudly on a rejected hunk.
+
+Shared PHP helpers that more than one tool uses live in `lib/lib.php`, with tests in `lib/tests/`.
 
 ## Contributing
 

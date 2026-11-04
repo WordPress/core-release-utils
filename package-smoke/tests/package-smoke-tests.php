@@ -37,14 +37,6 @@ function temporary_path(string $name): string {
 	return sys_get_temp_dir() . '/package-smoke-' . $name . '-' . bin2hex(random_bytes(4)) . '.zip';
 }
 
-check('Package version comes from the assignment', '6.8.3', package_smoke_package_version("<?php\n\$wp_version = '6.8.3';\n"));
-check('Initial public release has no patch suffix', '6.8', package_smoke_package_version("<?php\n\$wp_version = '6.8';\n"));
-check_throws('Missing package version is rejected', static fn() => package_smoke_package_version('<?php'));
-foreach (array('6.8-beta3', '6.8-RC1', '6.8.3-beta1') as $prerelease) {
-	check("Pre-release {$prerelease} is named", "The package version {$prerelease} is a pre-release; this tool tests stable release zips only.", error_of(static fn() => package_smoke_package_version("<?php\n\$wp_version = '{$prerelease}';\n"))?->getMessage());
-}
-check('Unquoted junk keeps the generic message', 'The package version.php has no valid $wp_version assignment.', error_of(static fn() => package_smoke_package_version("<?php\n\$wp_version = 'next';\n"))?->getMessage());
-
 check('Previous patch URL', 'https://wordpress.org/wordpress-6.8.2.zip', package_smoke_previous_url('6.8.3'));
 check('Patch one uses the initial public release URL', 'https://wordpress.org/wordpress-6.8.zip', package_smoke_previous_url('6.8.1'));
 check_throws('Patch zero requires an explicit previous zip', static fn() => package_smoke_previous_url('6.8.0'));
@@ -78,14 +70,6 @@ check('Upgrade updates from the package zip then verifies its version', array(
 ), array_column(array_slice($upgrade_steps, 7), 'arguments'));
 check('Upgrade ends by expecting the package version', '6.8.3', end($upgrade_steps)['expects']);
 
-check('Single wordpress root is accepted', null, package_smoke_package_layout(array('wordpress/', 'wordpress/index.php', 'wordpress/wp-includes/version.php')));
-check_throws('Flat zip is rejected', static fn() => package_smoke_package_layout(array('index.php', 'wp-includes/version.php')));
-check_throws('Two zip roots are rejected', static fn() => package_smoke_package_layout(array('wordpress/wp-includes/version.php', 'other/index.php')));
-check_throws('Missing version file is rejected', static fn() => package_smoke_package_layout(array('wordpress/index.php')));
-check_throws('Dot-segment zip path is rejected', static fn() => package_smoke_package_layout(array('wordpress/./version.php', 'wordpress/wp-includes/version.php')));
-check_throws('Zip traversal is rejected', static fn() => package_smoke_package_layout(array('wordpress/wp-includes/version.php', 'wordpress/../../outside.php')));
-check_throws('Backslash zip paths are rejected', static fn() => package_smoke_package_layout(array('wordpress/wp-includes/version.php', 'wordpress/..\\outside.php')));
-
 $package_rows = array(
 	array('test' => 'WordPress 6.8.3 package: fresh install', 'e2e_smoke' => 'pass', 'status' => 'passed', 'reason' => 'All required checks passed.'),
 	array('test' => 'WordPress 6.8.3 package: upgrade from 6.8.2', 'e2e_smoke' => 'fail', 'status' => 'failed', 'reason' => 'Page flow failed.'),
@@ -105,16 +89,6 @@ check('Row with a failed check fails', 'failed', package_smoke_status(array('sit
 check('Blocked row without a failure is env-blocked', 'env-blocked', package_smoke_status(array('site_up' => 'env-blocked', 'e2e_smoke' => 'skip')));
 check('Site up and walkthrough passed is a pass', 'passed', package_smoke_status(array('site_up' => 'pass', 'e2e_smoke' => 'pass')));
 
-$copy_retry_destination = temporary_path('copy-retry');
-$copy_retry_error = error_of(static fn() => package_smoke_copy_package('http://127.0.0.1:1/wordpress-6.8.3.zip', $copy_retry_destination, 2, 0));
-if (is_file($copy_retry_destination)) {
-	unlink($copy_retry_destination);
-}
-check('An unreachable package URL is retried before failing', true, $copy_retry_error instanceof RuntimeException);
-check('The retry failure reports the attempt count', true, str_starts_with($copy_retry_error?->getMessage() ?? '', 'Unable to copy the package zip after 2 attempt(s):'));
-check_throws('A missing local package source is rejected', static fn() => package_smoke_copy_package(temporary_path('missing'), temporary_path('copy-missing'), 3, 0));
-check_throws('At least one copy attempt is required', static fn() => package_smoke_copy_package('http://127.0.0.1:1/x.zip', temporary_path('copy-zero'), 0, 0));
-
 check('Locale list is trimmed and deduplicated', array('it_IT', 'fr_FR'), package_smoke_locales(array('locales' => 'it_IT, fr_FR,it_IT')));
 check('No --locales means no locale rows', array(), package_smoke_locales(array()));
 check_throws('Empty locale codes are refused', static fn() => package_smoke_locales(array('locales' => 'it_IT,')));
@@ -124,7 +98,7 @@ $locale_downloads = array();
 $locale_download  = static function (string $url, string $destination) use (&$locale_downloads): void {
 	$locale_downloads[] = array($url, $destination);
 };
-$locale_read = static fn(string $path): array => package_smoke_package_details("<?php\n\$wp_version = '6.8.3';\n\$wp_local_package = 'pt_BR';\n");
+$locale_read = static fn(string $path): array => package_details("<?php\n\$wp_version = '6.8.3';\n\$wp_local_package = 'pt_BR';\n");
 $locale_pass = package_smoke_locale_row('pt_BR', '6.8.3', 'locale.zip', $locale_download, $locale_read);
 check('Locale version and local package match passes', 'passed', $locale_pass['status']);
 check('Locale download uses the exact built URL', array(array('https://downloads.wordpress.org/release/pt_BR/wordpress-6.8.3.zip', 'locale.zip')), $locale_downloads);
@@ -139,11 +113,11 @@ check('Locale version mismatch fails', 'failed', $locale_mismatch['status']);
 check('Locale version mismatch preserves the version read', '6.8.2', $locale_mismatch['version']);
 check('Locale mismatch explains expected and actual versions', 'Version mismatch: expected 6.8.3, read 6.8.2.', $locale_mismatch['reason']);
 $locale_english = package_smoke_locale_row('pt_BR', '6.8.3', 'locale.zip', $locale_download,
-	static fn(): array => package_smoke_package_details("<?php\n\$wp_version = '6.8.3';\n"));
+	static fn(): array => package_details("<?php\n\$wp_version = '6.8.3';\n"));
 check('English zip is not a localized build', 'failed', $locale_english['status']);
 check('English zip explains missing local package', 'Missing $wp_local_package: not a localized build.', $locale_english['reason']);
 $locale_wrong = package_smoke_locale_row('pt_BR', '6.8.3', 'locale.zip', $locale_download,
-	static fn(): array => package_smoke_package_details("<?php\n\$wp_version = '6.8.3';\n\$wp_local_package = \"de_DE\";\n"));
+	static fn(): array => package_details("<?php\n\$wp_version = '6.8.3';\n\$wp_local_package = \"de_DE\";\n"));
 check('Wrong local package fails', 'failed', $locale_wrong['status']);
 check('Wrong local package preserves the locale read', 'de_DE', $locale_wrong['local_package']);
 check('Wrong local package explains expected and actual locales', 'Locale mismatch: expected pt_BR, read de_DE.', $locale_wrong['reason']);
@@ -205,17 +179,6 @@ $md5_report = package_smoke_render_report('7.1.4', $md5_rows, 'test run');
 check('md5 report row', true, str_contains($md5_report, '| 9761e62677474639e95b6168ed0a650f | https://wordpress.org/wordpress-7.1.4.zip.md5 | 00000000000000000000000000000000 | FAIL | md5 mismatch:'));
 check('md5 row stays out of the install table', false, str_contains($md5_report, '| WordPress 7.1.4 package: md5 |'));
 check('md5 mismatch is listed as not passed', true, str_contains($md5_report, '- WordPress 7.1.4 package: md5: md5 mismatch:'));
-
-check('Canonical https remote normalizes', 'WordPress/wordpress-develop', normalize_github_remote('https://github.com/WordPress/wordpress-develop.git'));
-check('scp-style GitHub remote normalizes', 'WordPress/wordpress-develop', normalize_github_remote('git@github.com:WordPress/wordpress-develop.git'));
-check('Local mirror path falls back to its last two segments', 'WordPress/wordpress-develop', normalize_github_remote('/srv/mirrors/WordPress/wordpress-develop.git'));
-check('Other hosts are refused', null, normalize_github_remote('https://evil.example/WordPress/wordpress-develop.git'));
-check('scp-style host without user is refused', null, normalize_github_remote('evil.invalid:any/WordPress/wordpress-develop.git'));
-check('A token in a query string is refused', null, normalize_github_remote('https://github.com/WordPress/wordpress-develop.git?access_token=TOKEN'));
-
-check('Parser accepts both value forms', array('package' => 'a.zip', 'output' => 'r.md', 'verbose' => false), parse_cli_options(array('x', '--package=a.zip', '--output', 'r.md', '--verbose'), array('package:', 'output:', 'verbose')));
-check('Repeated options become a list', array('package' => array('a.zip', 'b.zip')), parse_cli_options(array('x', '--package=a.zip', '--package=b.zip'), array('package:')));
-check('Unknown options are refused', 'Unknown option: --release', error_of(static fn() => parse_cli_options(array('x', '--release=7.1.4'), array('package:')))?->getMessage());
 
 check('Artifact directory drops the .md suffix', '/tmp/report-artifacts/6.8.3-0', package_smoke_artifact_directory('/tmp/report.md', '6.8.3-0'));
 check('Unchanged files give no reason', null, package_smoke_source_change_reason(array('wp-includes/version.php' => 'a', 'wp-settings.php' => 'b'), array('wp-includes/version.php' => 'a', 'wp-settings.php' => 'b')));
@@ -280,8 +243,6 @@ check_throws('Commands need env:cli', static fn() => package_smoke_commands(arra
 check('Commands prefer env:clean', 'env:clean', package_smoke_commands(array('env:start' => 'x', 'env:cli' => 'x', 'env:clean' => 'x', 'env:stop' => 'x'))['clean']);
 check('Commands need no build or env:install script', array('start' => 'env:start', 'cli' => 'env:cli', 'clean' => 'env:stop'), package_smoke_commands(array('env:start' => 'x', 'env:cli' => 'x', 'env:stop' => 'x')));
 check('Release line from a patch version', '7.1', release_line('7.1.4'));
-check('Git commands turn off auto maintenance', array('git', '-c', 'maintenance.auto=false', 'fetch'), git_command_without_auto_maintenance(array('git', 'fetch')));
-check('Other commands are unchanged', array('npm', 'ci'), git_command_without_auto_maintenance(array('npm', 'ci')));
 
 foreach ($failures as $failure) {
 	echo "FAIL {$failure}\n";
