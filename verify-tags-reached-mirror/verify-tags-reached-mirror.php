@@ -3,6 +3,8 @@
 
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/lib/lib.php';
+
 /**
  * Check that release tags on core.svn.wordpress.org reached the WordPress/WordPress Git mirror.
  *
@@ -46,11 +48,6 @@ const KNOWN = array(
 	'3.1.3' => array(18044, 18288),
 	'3.6.1' => array(25316, 25317),
 );
-
-function fail(string $message, int $code = 1): never {
-	fwrite(STDERR, $message . PHP_EOL);
-	exit($code);
-}
 
 function parse_duration(string $text): int {
 	if (1 !== preg_match('/^(\d{1,9})([smh]?)$/', $text, $match)) {
@@ -176,20 +173,9 @@ function svn_tag_revisions(string $svn_url, ?callable $transport = null): array 
 	return $tags;
 }
 
-/** @return array{code:int,stdout:string,stderr:string} */
-function run_command(array $command, ?string $cwd = null): array {
-	$process = proc_open($command, array(1 => array('pipe', 'w'), 2 => array('pipe', 'w')), $pipes, $cwd);
-	if (!is_resource($process)) {
-		throw new RuntimeException('Unable to start ' . implode(' ', $command));
-	}
-	$stdout = (string) stream_get_contents($pipes[1]);
-	$stderr = (string) stream_get_contents($pipes[2]);
-	return array('code' => proc_close($process), 'stdout' => $stdout, 'stderr' => $stderr);
-}
-
 /** Run git in the scratch repository, throw with stderr on failure. */
 function git(string ...$args): string {
-	$result = run_command(array_merge(array('git', '-C', scratch_repo()), $args));
+	$result = run_command(array_merge(array('git', '-C', scratch_repo()), $args), null, true);
 	if (0 !== $result['code']) {
 		throw new RuntimeException('git ' . implode(' ', $args) . ' failed: ' . trim($result['stderr']));
 	}
@@ -221,7 +207,7 @@ function scratch_repo(): string {
 			fwrite(STDERR, "Could not remove {$path}: {$error->getMessage()}\n");
 		}
 	});
-	$init = run_command(array('git', 'init', '-q', '--bare'), $path);
+	$init = run_command(array('git', 'init', '-q', '--bare'), $path, true);
 	if (0 !== $init['code']) {
 		throw new RuntimeException('git init failed: ' . trim($init['stderr']));
 	}
@@ -239,7 +225,7 @@ function scratch_repo(): string {
 /** Fetch only the commit objects behind $refspec. */
 function mirror_fetch(string $repo_url, string $refspec): array {
 	$command = array('git', '-C', scratch_repo(), '-c', 'credential.helper=', '-c', 'http.lowSpeedLimit=1', '-c', 'http.lowSpeedTime=60', 'fetch', '-q', '--no-tags', '--filter=tree:0', '--depth=1', $repo_url, $refspec);
-	return run_command($command);
+	return run_command($command, null, true);
 }
 
 function revision_from_message(string $tag, ?string $message): ?int {
@@ -449,7 +435,7 @@ function main(array $argv): int {
 		throw new InvalidArgumentException('--interval must not be longer than --timeout.');
 	}
 	$tag_list = $audit ? array() : parse_tag_list($tags);
-	if (0 !== run_command(array('/bin/sh', '-c', 'command -v git'))['code']) {
+	if (0 !== run_command(array('/bin/sh', '-c', 'command -v git'), null, true)['code']) {
 		throw new RuntimeException('git not found in PATH.');
 	}
 	if (!ini_get('allow_url_fopen')) {

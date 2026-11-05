@@ -3,7 +3,7 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/lib/lib.php';
+require_once dirname(__DIR__) . '/lib/lib.php';
 require_once __DIR__ . '/lib/checkout-lib.php';
 require_once __DIR__ . '/lib/helphub-manifest-lib.php';
 require_once __DIR__ . '/lib/draft-helphub-version-pages-lib.php';

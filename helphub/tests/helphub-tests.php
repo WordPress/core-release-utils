@@ -5,6 +5,7 @@ declare(strict_types=1);
 
 /** Offline HelpHub checks: no network, no git, no subprocesses or disk fixtures. */
 
+require_once dirname(__DIR__, 2) . '/lib/lib.php';
 foreach (glob(dirname(__DIR__) . '/lib/*.php') as $library) {
 	require_once $library;
 }
