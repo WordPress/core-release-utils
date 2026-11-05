@@ -3,6 +3,8 @@
 
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/lib/lib.php';
+
 /**
  * Generate or verify WordPress release tag commands without executing them.
  * Usage: php svn-tags.php --generate --branches=6.5,6.4,6.3
@@ -19,11 +21,6 @@ const DEFAULT_SVN = 'https://develop.svn.wordpress.org';
 const ROW         = "%-8s %-26s %-16s %-8s %-13s %-12s %s\n";
 const AUDIT_ROW   = "%-8s %-16s %-10s %-16s %-10s %-26s %-10s %s\n";
 const USAGE       = 'Usage: svn-tags.php (--generate BRANCHES | --verify [BRANCHES] [--file=path] | --audit [BRANCHES] [--file=path | --tags=X.Y.Z,...]) [--svn=URL] [--min-age=60s (generate/verify only)]' . "\n" . 'BRANCHES: --branches=X.Y,... or --branch-start=X.Y --branch-end=X.Y';
-
-function fail(string $message, int $code = 1): never {
-	fwrite(STDERR, $message . PHP_EOL);
-	exit($code);
-}
 
 function parse_duration(string $text): int {
 	if (1 !== preg_match('/^(\d{1,9})([smh]?)$/', $text, $match)) {

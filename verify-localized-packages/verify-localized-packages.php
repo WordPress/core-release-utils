@@ -3,6 +3,8 @@
 
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/lib/lib.php';
+
 /**
  * Check that the localized WordPress packages exist on downloads.wordpress.org after a core release.
  *
@@ -45,11 +47,6 @@ const RETRIES          = 3;
 const RETRY_DELAY      = 30;
 const ROW              = "%-10s %-8s %-8s %s\n";
 const RULE             = "------------------------------------------------------------------\n";
-
-function fail(string $message, int $code = 1): never {
-	fwrite(STDERR, $message . PHP_EOL);
-	exit($code);
-}
 
 function parse_duration(string $text): int {
 	if (1 !== preg_match('/^(\d{1,9})([smh]?)$/', $text, $match)) {
