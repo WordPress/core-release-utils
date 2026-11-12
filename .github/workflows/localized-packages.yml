@@ -13,7 +13,7 @@ on:
         required: false
         type: string
       timeout:
-        description: 'How long to wait for the packages, at most 3h. 0 checks once.'
+        description: 'How long to wait for the packages. 0 checks once.'
         required: false
         type: string
         default: '3h'
@@ -43,7 +43,7 @@ jobs:
           php-version: '8.1'
           coverage: none
       - name: Check the inputs
-        run: php .github/scripts/check-inputs.php --max-timeout=3h
+        run: php .github/scripts/check-inputs.php
       - name: Run verify-localized-packages
         id: run
         run: |

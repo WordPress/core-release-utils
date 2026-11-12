@@ -6,26 +6,18 @@ declare(strict_types=1);
 /**
  * Checks the release check workflow inputs before a tool runs.
  *
- * Reads $VERSIONS (comma-separated X.Y.Z or X.Y) and, with a timeout limit, $TIMEOUT.
+ * Reads $VERSIONS (comma-separated X.Y.Z or X.Y).
  * On success, writes list=<JSON array> to $GITHUB_OUTPUT and VERSIONS=<clean list> to
  * $GITHUB_ENV. On failure, writes the reason to $GITHUB_STEP_SUMMARY and exits 1.
  */
 
 require dirname(__DIR__, 2) . '/lib/lib.php';
 
-/** Same format as the tools' --timeout: a whole number with s (default), m or h. */
-function check_inputs_seconds(string $text): int {
-	if (1 !== preg_match('/^(\d{1,9})([smh]?)$/', $text, $match)) {
-		throw new InvalidArgumentException("Bad timeout: '{$text}'. Use a whole number with s, m or h.");
-	}
-	return (int) $match[1] * array('' => 1, 's' => 1, 'm' => 60, 'h' => 3600)[$match[2]];
-}
-
 /**
- * @param array{refuse-x-y-0?: false, max-timeout?: string, min-timeout?: string} $options As parse_cli_options() returns them.
+ * @param array{refuse-x-y-0?: false} $options As parse_cli_options() returns them.
  * @return list<string> The versions, trimmed and without duplicates.
  */
-function check_inputs(string $versions, string $timeout, array $options): array {
+function check_inputs(string $versions, array $options): array {
 	if (str_contains($versions, "\n")) {
 		throw new InvalidArgumentException('Use commas, not new lines, between versions.');
 	}
@@ -48,15 +40,6 @@ function check_inputs(string $versions, string $timeout, array $options): array 
 		$list[] = $version;
 	}
 
-	if (isset($options['min-timeout']) || isset($options['max-timeout'])) {
-		$seconds = check_inputs_seconds($timeout);
-		if (isset($options['min-timeout']) && $seconds < check_inputs_seconds($options['min-timeout'])) {
-			throw new InvalidArgumentException("The timeout must be at least {$options['min-timeout']}.");
-		}
-		if (isset($options['max-timeout']) && $seconds > check_inputs_seconds($options['max-timeout'])) {
-			throw new InvalidArgumentException("The timeout {$timeout} is longer than {$options['max-timeout']}, so the job would stop first.");
-		}
-	}
 	return array_values(array_unique($list));
 }
 
@@ -68,9 +51,9 @@ function check_inputs_append(string $variable, string $line): void {
 }
 
 function check_inputs_main(array $argv): int {
-	$options = cli_options($argv, array('refuse-x-y-0', 'max-timeout:', 'min-timeout:'));
+	$options = cli_options($argv, array('refuse-x-y-0'));
 	try {
-		$list = check_inputs((string) getenv('VERSIONS'), (string) getenv('TIMEOUT'), $options);
+		$list = check_inputs((string) getenv('VERSIONS'), $options);
 	} catch (InvalidArgumentException $error) {
 		echo '::error::' . $error->getMessage() . "\n";
 		check_inputs_append('GITHUB_STEP_SUMMARY', 'Refused: ' . $error->getMessage());
