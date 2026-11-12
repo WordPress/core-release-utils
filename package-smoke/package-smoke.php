@@ -130,6 +130,11 @@ function package_smoke_version_reported(string $output, string $version): bool {
 	return in_array($version, $lines, true);
 }
 
+/** jQuery 3.7.0 and older (WordPress 6.3 and older) add an unload listener, which Chrome 155+ blocks with a console error. */
+function package_smoke_ignores_unload_policy(string $version): bool {
+	return version_compare($version, '6.4', '<');
+}
+
 function package_smoke_require_older(string $previous, string $version): void {
 	$pad = static fn(string $release): string => implode('.', array_pad(explode('.', $release), 3, '0'));
 	if (version_compare($pad($previous), $pad($version), '<')) {
@@ -1104,6 +1109,7 @@ function package_smoke_write_report(string $path, string $report): void {
 }
 
 function package_smoke_functional(
+	string $version,
 	string $worktree,
 	string $repo,
 	string $port,
@@ -1122,6 +1128,7 @@ function package_smoke_functional(
 			'SMOKE_USER=admin', 'SMOKE_PASS=password',
 			"PW_PATH={$playwright_module}",
 			"DEBUG_LOG={$worktree}/{$wp_dir}/wp-content/debug.log",
+			'SMOKE_IGNORE_UNLOAD_POLICY=' . (package_smoke_ignores_unload_policy($version) ? '1' : '0'),
 			'node', $functional_runner, $functional_directory,
 		),
 		$worktree,
@@ -1303,7 +1310,7 @@ function package_smoke_package_run(
 				}
 				$row['site_up'] = 'pass';
 				package_smoke_functional(
-					$worktree, $repo, $port, 'package', $playwright_module, $functional_runner,
+					$version, $worktree, $repo, $port, 'package', $playwright_module, $functional_runner,
 					$worktree . '/.package-functional-' . $index,
 					package_smoke_artifact_directory($options['output'], $version . '-' . $index), $row, $reasons
 				);
