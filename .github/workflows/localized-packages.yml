@@ -29,7 +29,6 @@ jobs:
   verify-localized-packages:
     name: Verify localized packages
     runs-on: ubuntu-latest
-    timeout-minutes: 330
     env:
       VERSIONS: ${{ inputs.versions }}
       LOCALES: ${{ inputs.locales }}
