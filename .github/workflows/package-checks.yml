@@ -1,0 +1,160 @@
+# Smoke-tests each release zip (fresh install, upgrade, md5) and checks that it matches its wordpress-develop tag. Start it after the zips are live.
+name: Package checks
+
+on:
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: 'Comma-separated versions, for example 7.1.5,7.0.6. X.Y and X.Y.0 are refused.'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  versions:
+    name: Check the versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      list: ${{ steps.parse.outputs.list }}
+    steps:
+      - id: parse
+        env:
+          VERSIONS: ${{ inputs.versions }}
+        run: |
+          refuse() {
+            echo "::error::$1"
+            echo "Refused: $1" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          }
+          IFS=',' read -ra items <<< "$VERSIONS"
+          [ "${#items[@]}" -gt 0 ] || refuse 'No versions given.'
+          list=()
+          for item in "${items[@]}"; do
+            version="${item//[[:space:]]/}"
+            [[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))?$ ]] || refuse "Not an X.Y.Z or X.Y version: '$item'."
+            [[ $version =~ ^[0-9]+\.[0-9]+\.[1-9][0-9]*$ ]] || refuse "$version is an X.Y.0 release. package-smoke needs --previous for it, which this workflow does not pass yet. Run the tools locally."
+            list+=("$version")
+          done
+          echo "list=$(printf '%s\n' "${list[@]}" | awk '!seen[$0]++' | jq -Rnc '[inputs]')" >> "$GITHUB_OUTPUT"
+
+  package-smoke:
+    name: Smoke test ${{ matrix.version }}
+    needs: versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(needs.versions.outputs.list) }}
+    env:
+      VERSION: ${{ matrix.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.1'
+          extensions: zip
+          coverage: none
+      - name: Clone wordpress-develop
+        run: git clone --quiet --filter=blob:none https://github.com/WordPress/wordpress-develop.git "$RUNNER_TEMP/wordpress-develop"
+      - name: Install Playwright and Chromium
+        run: |
+          mkdir -p "$RUNNER_TEMP/playwright" "$RUNNER_TEMP/out"
+          cd "$RUNNER_TEMP/playwright"
+          npm init -y > /dev/null
+          npm install --no-audit --no-fund playwright@1.65.0
+          npx playwright install --with-deps chromium
+      - name: Run package-smoke
+        run: |
+          code=0
+          php package-smoke/package-smoke.php --repository=WordPress/wordpress-develop --checkout="$RUNNER_TEMP/wordpress-develop" \
+            --package="https://wordpress.org/wordpress-$VERSION.zip" \
+            --playwright-module="$RUNNER_TEMP/playwright/node_modules/playwright" --output="$RUNNER_TEMP/out/$VERSION.md" 2>&1 \
+            | tee "$RUNNER_TEMP/out/package-smoke.log" || code=$?
+          echo "$code" > "$RUNNER_TEMP/out/package-smoke.code"
+          exit "$code"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: package-smoke-${{ matrix.version }}
+          path: ${{ runner.temp }}/out
+          if-no-files-found: ignore
+
+  verify-package-matches-source:
+    name: Source match ${{ matrix.version }}
+    needs: versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(needs.versions.outputs.list) }}
+    env:
+      VERSION: ${{ matrix.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.1'
+          extensions: zip
+          coverage: none
+      - name: Clone wordpress-develop
+        run: git clone --quiet --filter=blob:none https://github.com/WordPress/wordpress-develop.git "$RUNNER_TEMP/wordpress-develop"
+      - name: Run verify-package-matches-source
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          code=0
+          php verify-package-matches-source/verify-package-matches-source.php --repository=WordPress/wordpress-develop \
+            --checkout="$RUNNER_TEMP/wordpress-develop" --package="https://wordpress.org/wordpress-$VERSION.zip" 2>&1 \
+            | tee "$RUNNER_TEMP/out/source-match.log" || code=$?
+          echo "$code" > "$RUNNER_TEMP/out/source-match.code"
+          exit "$code"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: verify-package-matches-source-${{ matrix.version }}
+          path: ${{ runner.temp }}/out
+          if-no-files-found: ignore
+
+  summary:
+    name: Summary
+    needs: [versions, package-smoke, verify-package-matches-source]
+    if: ${{ always() && needs.versions.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: results
+      - name: Write the summary
+        env:
+          LIST: ${{ needs.versions.outputs.list }}
+        run: |
+          verdict() {
+            case "$(cat "$1" 2>/dev/null)" in
+              0) echo PASS ;; 2) echo FAIL ;; '') echo 'no result' ;; *) echo ERROR ;;
+            esac
+          }
+          install() {
+            awk -F' *\\| *' -v test="$2" '/^\| / && $2 ~ test { print ($5 == "pass" && $6 == "pass") ? "PASS" : "FAIL (site up: " $5 ", E2E: " $6 ")"; found = 1 }
+              END { if (!found) print "no result" }' "$1" 2>/dev/null || echo 'no result'
+          }
+          {
+            echo '| Zip | Install | Upgrade | md5 | md5 match | Source match |'
+            echo '|---|---|---|---|---|---|'
+            for version in $(jq -r '.[]' <<< "$LIST"); do
+              smoke="results/package-smoke-$version"
+              md5=$(sed -n 's/^PACKAGE_MD5=[^ ]* //p' "$smoke/package-smoke.log" 2>/dev/null || true)
+              md5_match=$(sed -n 's/^Package md5 check: \([A-Z/]*\)\..*/\1/p' "$smoke/package-smoke.log" 2>/dev/null || true)
+              echo "| $version | $(install "$smoke/$version.md" 'fresh install') | $(install "$smoke/$version.md" 'upgrade from') | ${md5:-none} | ${md5_match:-no result} | $(verdict "results/verify-package-matches-source-$version/source-match.code") |"
+            done
+            echo
+            echo 'Each zip has two artifacts: package-smoke-<version> with the report, its screenshots and the log, and verify-package-matches-source-<version> with the log.'
+          } >> "$GITHUB_STEP_SUMMARY"

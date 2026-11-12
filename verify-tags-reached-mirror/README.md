@@ -13,6 +13,10 @@ Options: `--timeout=45m`, `--interval=60s`, `--svn=URL`, `--repo=OWNER/NAME`. Du
 
 Exit 0 when every tag is on the mirror at the SVN revision, or is a known permanent mismatch (3.1.3 and 3.6.1). Exit 2 when a human must look. Exit 1 when the script broke.
 
+## In CI
+
+The `Tags reached mirror` workflow (`.github/workflows/tags-reached-mirror.yml`) runs `--tags`. Start it by hand after the SVN tags are created. Inputs: `versions` (the tags, comma-separated), `timeout` (default `45m`, at most `50m`) and `interval`.
+
 ## How it works
 
 - Reads the SVN revision of a tag with a WebDAV PROPFIND.
