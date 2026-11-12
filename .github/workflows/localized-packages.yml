@@ -29,7 +29,7 @@ jobs:
   verify-localized-packages:
     name: Verify localized packages
     runs-on: ubuntu-latest
-    timeout-minutes: 200
+    timeout-minutes: 330
     env:
       VERSIONS: ${{ inputs.versions }}
       LOCALES: ${{ inputs.locales }}
@@ -42,11 +42,13 @@ jobs:
             echo "Refused: $1" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           }
+          shopt -s extglob
           IFS=',' read -ra items <<< "$VERSIONS"
           [ "${#items[@]}" -gt 0 ] || refuse 'No versions given.'
           list=()
           for item in "${items[@]}"; do
-            version="${item//[[:space:]]/}"
+            version="${item##+([[:space:]])}"
+            version="${version%%+([[:space:]])}"
             [[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))?$ ]] || refuse "Not an X.Y.Z or X.Y version: '$item'."
             list+=("$version")
           done
@@ -61,15 +63,17 @@ jobs:
         with:
           php-version: '8.1'
           coverage: none
-      - name: verify-localized-packages
+      - name: Run verify-localized-packages
+        id: run
         run: |
           args=(--versions="$VERSIONS" --timeout="$TIMEOUT")
           [ -z "$LOCALES" ] || args+=(--locales="$LOCALES")
-          code=0
-          php verify-localized-packages/verify-localized-packages.php "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/output.log" || code=$?
+          php verify-localized-packages/verify-localized-packages.php "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/output.log"
+      - name: Write the summary
+        if: ${{ always() && steps.run.outcome != 'skipped' }}
+        run: |
           {
             echo '```'
             awk '/^-+$/ { tail = ""; next } { tail = tail $0 "\n" } END { printf "%s", tail }' "$RUNNER_TEMP/output.log"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          exit "$code"

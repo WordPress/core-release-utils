@@ -33,11 +33,13 @@ jobs:
             echo "Refused: $1" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           }
+          shopt -s extglob
           IFS=',' read -ra items <<< "$VERSIONS"
           [ "${#items[@]}" -gt 0 ] || refuse 'No versions given.'
           list=()
           for item in "${items[@]}"; do
-            version="${item//[[:space:]]/}"
+            version="${item##+([[:space:]])}"
+            version="${version%%+([[:space:]])}"
             [[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))?$ ]] || refuse "Not an X.Y.Z or X.Y version: '$item'."
             [[ $version =~ ^[0-9]+\.[0-9]+\.[1-9][0-9]*$ ]] || refuse "$version is an X.Y.0 release. package-smoke needs --previous for it, which this workflow does not pass yet. Run the tools locally."
             list+=("$version")
@@ -66,6 +68,9 @@ jobs:
           coverage: none
       - name: Clone wordpress-develop
         run: git clone --quiet --filter=blob:none https://github.com/WordPress/wordpress-develop.git "$RUNNER_TEMP/wordpress-develop"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: ${{ runner.temp }}/wordpress-develop/.nvmrc
       - name: Run the Docker containers as the runner user
         run: |
           echo "PHP_FPM_UID=$(id -u)" >> "$GITHUB_ENV"
@@ -151,6 +156,7 @@ jobs:
             esac
           }
           install() {
+            [ -f "$1" ] || { verdict "${1%/*}/package-smoke.code"; return; }
             awk -F' *\\| *' -v test="$2" '/^\| / && $2 ~ test { print ($5 == "pass" && $6 == "pass") ? "PASS" : "FAIL (site up: " $5 ", E2E: " $6 ")"; found = 1 }
               END { if (!found) print "no result" }' "$1" 2>/dev/null || echo 'no result'
           }

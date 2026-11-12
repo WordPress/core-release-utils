@@ -29,7 +29,7 @@ jobs:
   verify-tags-reached-mirror:
     name: Verify tags reached the mirror
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 110
     env:
       VERSIONS: ${{ inputs.versions }}
       TIMEOUT: ${{ inputs.timeout }}
@@ -42,16 +42,19 @@ jobs:
             echo "Refused: $1" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           }
+          shopt -s extglob
           IFS=',' read -ra items <<< "$VERSIONS"
           [ "${#items[@]}" -gt 0 ] || refuse 'No versions given.'
           list=()
           for item in "${items[@]}"; do
-            version="${item//[[:space:]]/}"
+            version="${item##+([[:space:]])}"
+            version="${version%%+([[:space:]])}"
             [[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))?$ ]] || refuse "Not an X.Y.Z or X.Y version: '$item'."
             list+=("$version")
           done
           [[ $TIMEOUT =~ ^([0-9]+)([smh]?)$ ]] || refuse "Bad timeout: '$TIMEOUT'. Use a whole number with s, m or h."
           case "${BASH_REMATCH[2]}" in h) seconds=$((10#${BASH_REMATCH[1]} * 3600)) ;; m) seconds=$((10#${BASH_REMATCH[1]} * 60)) ;; *) seconds=$((10#${BASH_REMATCH[1]})) ;; esac
+          [ "$seconds" -ge 1 ] || refuse 'The timeout must be at least 1s.'
           [ "$seconds" -le 3000 ] || refuse "The timeout $TIMEOUT is longer than 50m, so the job would stop first."
           echo "VERSIONS=$(IFS=,; echo "${list[*]}")" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -61,15 +64,17 @@ jobs:
         with:
           php-version: '8.1'
           coverage: none
-      - name: verify-tags-reached-mirror
+      - name: Run verify-tags-reached-mirror
+        id: run
         run: |
           args=(--tags="$VERSIONS" --timeout="$TIMEOUT")
           [ -z "$INTERVAL" ] || args+=(--interval="$INTERVAL")
-          code=0
-          php verify-tags-reached-mirror/verify-tags-reached-mirror.php "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/output.log" || code=$?
+          php verify-tags-reached-mirror/verify-tags-reached-mirror.php "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/output.log"
+      - name: Write the summary
+        if: ${{ always() && steps.run.outcome != 'skipped' }}
+        run: |
           {
             echo '```'
             sed -n '/^Summary$/,$p' "$RUNNER_TEMP/output.log" | grep . || tail -n 20 "$RUNNER_TEMP/output.log"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          exit "$code"
