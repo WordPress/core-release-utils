@@ -64,7 +64,8 @@ const ADMIN_FLOWS = [
     const consoleErrs = [];
     const scriptFailures = [];
     const onmsg = (m) => {
-      if (m.type() === 'error') {
+      // Chrome 155+ logs this when jQuery 3.7.0 and older (WordPress 6.3 and older) add an unload listener; nothing breaks.
+      if (m.type() === 'error' && m.text() !== 'Permissions policy violation: unload is not allowed in this document.') {
         const location = m.location();
         consoleErrs.push(m.text().slice(0, 1000) + (location.url ? ` (at ${location.url}:${location.lineNumber + 1})` : ''));
       }
