@@ -15,7 +15,7 @@ Exit 0 when every file exists. Exit 2 when a file is missing or could not be che
 
 ## In CI
 
-The `Localized packages` workflow (`.github/workflows/localized-packages.yml`) runs this tool. Start it by hand after auto-updates are on. Inputs: `versions`, `locales` and `timeout` (default `3h`, at most `3h`; `0` checks once).
+The `Release checks: Localized packages` workflow (`.github/workflows/localized-packages.yml`) runs this tool. Start it by hand after auto-updates are on. Inputs: `versions`, `locales` and `timeout` (default `3h`, at most `3h`; `0` checks once).
 
 ## How it works
 

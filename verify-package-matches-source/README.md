@@ -15,7 +15,7 @@ Exit 0 when the zip matches. Exit 2 when a file differs, is missing or is added;
 
 ## In CI
 
-The `Package checks` workflow (`.github/workflows/package-checks.yml`) runs this tool on each zip, next to `package-smoke`. See the [package-smoke README](../package-smoke/README.md#in-ci).
+The `Release checks: Packages` workflow (`.github/workflows/package-checks.yml`) runs this tool on each zip, next to `package-smoke`. See the [package-smoke README](../package-smoke/README.md#in-ci).
 
 ## How it works
 

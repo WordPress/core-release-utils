@@ -15,7 +15,7 @@ Exit 0 when every tag is on the mirror at the SVN revision, or is a known perman
 
 ## In CI
 
-The `Tags reached mirror` workflow (`.github/workflows/tags-reached-mirror.yml`) runs `--tags`. Start it by hand after the SVN tags are created. Inputs: `versions` (the tags, comma-separated), `timeout` (default `45m`, at most `50m`) and `interval`.
+The `Release checks: Tags reached mirror` workflow (`.github/workflows/tags-reached-mirror.yml`) runs `--tags`. Start it by hand after the SVN tags are created. Inputs: `versions` (the tags, comma-separated), `timeout` (default `45m`, at most `50m`) and `interval`.
 
 ## How it works
 

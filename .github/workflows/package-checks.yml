@@ -1,5 +1,5 @@
 # Smoke-tests each release zip (fresh install, upgrade, md5) and checks that it matches its wordpress-develop tag. Start it after the zips are live.
-name: Package checks
+name: "Release checks: Packages"
 
 on:
   workflow_dispatch:
@@ -24,27 +24,13 @@ jobs:
     outputs:
       list: ${{ steps.parse.outputs.list }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - id: parse
         env:
           VERSIONS: ${{ inputs.versions }}
-        run: |
-          refuse() {
-            echo "::error::$1"
-            echo "Refused: $1" >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          }
-          shopt -s extglob
-          IFS=',' read -ra items <<< "$VERSIONS"
-          [ "${#items[@]}" -gt 0 ] || refuse 'No versions given.'
-          list=()
-          for item in "${items[@]}"; do
-            version="${item##+([[:space:]])}"
-            version="${version%%+([[:space:]])}"
-            [[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))?$ ]] || refuse "Not an X.Y.Z or X.Y version: '$item'."
-            [[ $version =~ ^[0-9]+\.[0-9]+\.[1-9][0-9]*$ ]] || refuse "$version is an X.Y.0 release. package-smoke needs --previous for it, which this workflow does not pass yet. Run the tools locally."
-            list+=("$version")
-          done
-          echo "list=$(printf '%s\n' "${list[@]}" | awk '!seen[$0]++' | jq -Rnc '[inputs]')" >> "$GITHUB_OUTPUT"
+        run: .github/scripts/check-inputs.sh --refuse-x-y-0
 
   package-smoke:
     name: Smoke test ${{ matrix.version }}

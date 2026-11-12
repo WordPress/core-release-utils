@@ -1,5 +1,5 @@
 # Checks that the language packs and localized zips exist for each locale. Start it after auto-updates are on.
-name: Localized packages
+name: "Release checks: Localized packages"
 
 on:
   workflow_dispatch:
@@ -35,30 +35,11 @@ jobs:
       LOCALES: ${{ inputs.locales }}
       TIMEOUT: ${{ inputs.timeout }}
     steps:
-      - name: Check the inputs
-        run: |
-          refuse() {
-            echo "::error::$1"
-            echo "Refused: $1" >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          }
-          shopt -s extglob
-          IFS=',' read -ra items <<< "$VERSIONS"
-          [ "${#items[@]}" -gt 0 ] || refuse 'No versions given.'
-          list=()
-          for item in "${items[@]}"; do
-            version="${item##+([[:space:]])}"
-            version="${version%%+([[:space:]])}"
-            [[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))?$ ]] || refuse "Not an X.Y.Z or X.Y version: '$item'."
-            list+=("$version")
-          done
-          [[ $TIMEOUT =~ ^([0-9]+)([smh]?)$ ]] || refuse "Bad timeout: '$TIMEOUT'. Use a whole number with s, m or h."
-          case "${BASH_REMATCH[2]}" in h) seconds=$((10#${BASH_REMATCH[1]} * 3600)) ;; m) seconds=$((10#${BASH_REMATCH[1]} * 60)) ;; *) seconds=$((10#${BASH_REMATCH[1]})) ;; esac
-          [ "$seconds" -le 10800 ] || refuse "The timeout $TIMEOUT is longer than 3h, so the job would stop first."
-          echo "VERSIONS=$(IFS=,; echo "${list[*]}")" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Check the inputs
+        run: .github/scripts/check-inputs.sh --max-timeout=3h
       - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
           php-version: '8.1'
