@@ -19,7 +19,7 @@ refuse() {
 }
 
 seconds() {
-	[[ $1 =~ ^([0-9]+)([smh]?)$ ]] || return 1
+	[[ $1 =~ ^([0-9]{1,6})([smh]?)$ ]] || return 1
 	case "${BASH_REMATCH[2]}" in
 		h) echo $((10#${BASH_REMATCH[1]} * 3600)) ;;
 		m) echo $((10#${BASH_REMATCH[1]} * 60)) ;;

@@ -1232,7 +1232,9 @@ function package_smoke_package_run(
 		);
 		$runtime = $php['versions'][count($php['versions']) - 1];
 		$worktree = temporary_worktree("wp-package-ui-{$version}");
-		// The web server container runs as its own user and must read the site.
+		// The web server container runs as its own user and must read the site,
+		// including the files that git and the zip extraction create below.
+		umask(022);
 		if (!chmod($worktree, 0755)) {
 			throw new RuntimeException("Unable to make {$worktree} readable for the web server container.");
 		}
