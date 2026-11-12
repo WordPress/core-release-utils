@@ -21,6 +21,10 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   verify-localized-packages:
     name: Verify localized packages

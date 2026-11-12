@@ -21,6 +21,10 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   verify-tags-reached-mirror:
     name: Verify tags reached the mirror
