@@ -29,7 +29,6 @@ jobs:
   verify-tags-reached-mirror:
     name: Verify tags reached the mirror
     runs-on: ubuntu-latest
-    timeout-minutes: 110
     env:
       VERSIONS: ${{ inputs.versions }}
       TIMEOUT: ${{ inputs.timeout }}
