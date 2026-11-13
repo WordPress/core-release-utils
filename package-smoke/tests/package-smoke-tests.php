@@ -37,6 +37,10 @@ function temporary_path(string $name): string {
 	return sys_get_temp_dir() . '/package-smoke-' . $name . '-' . bin2hex(random_bytes(4)) . '.zip';
 }
 
+check('6.3 ignores the unload policy error', true, package_smoke_ignores_unload_policy('6.3.14'));
+check('4.7 ignores the unload policy error', true, package_smoke_ignores_unload_policy('4.7.39'));
+check('6.4 counts the unload policy error', false, package_smoke_ignores_unload_policy('6.4'));
+check('6.10 counts the unload policy error', false, package_smoke_ignores_unload_policy('6.10.1'));
 check('Previous patch URL', 'https://wordpress.org/wordpress-6.8.2.zip', package_smoke_previous_url('6.8.3'));
 check('Patch one uses the initial public release URL', 'https://wordpress.org/wordpress-6.8.zip', package_smoke_previous_url('6.8.1'));
 check_throws('Patch zero requires an explicit previous zip', static fn() => package_smoke_previous_url('6.8.0'));

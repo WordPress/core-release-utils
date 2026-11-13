@@ -14,6 +14,7 @@
 //   SMOKE_USER   admin login                (default admin)
 //   SMOKE_PASS   admin password             (default password)
 //   PW_PATH      path to the playwright module (default: normal resolution)
+//   SMOKE_IGNORE_UNLOAD_POLICY  1 = ignore Chrome's unload policy error (WordPress 6.3 and older)
 
 const PW = process.env.PW_PATH || 'playwright';
 const { chromium } = require(PW);
@@ -22,6 +23,8 @@ const fs = require('node:fs');
 const BASE = process.env.SMOKE_BASE || 'http://localhost:8889';
 const USER = process.env.SMOKE_USER || 'admin';
 const PASS = process.env.SMOKE_PASS || 'password';
+const IGNORE_UNLOAD_POLICY = process.env.SMOKE_IGNORE_UNLOAD_POLICY === '1';
+const UNLOAD_POLICY_ERROR = 'Permissions policy violation: unload is not allowed in this document.';
 const OUT = process.argv[2] || './smoke-out';
 // Optional: path to the install's debug.log (needs WP_DEBUG_LOG=true). If set, the
 // run reports any NEW `PHP Fatal error` lines written while it ran. Fatals are the
@@ -64,7 +67,7 @@ const ADMIN_FLOWS = [
     const consoleErrs = [];
     const scriptFailures = [];
     const onmsg = (m) => {
-      if (m.type() === 'error') {
+      if (m.type() === 'error' && !(IGNORE_UNLOAD_POLICY && m.text() === UNLOAD_POLICY_ERROR)) {
         const location = m.location();
         consoleErrs.push(m.text().slice(0, 1000) + (location.url ? ` (at ${location.url}:${location.lineNumber + 1})` : ''));
       }
