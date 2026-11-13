@@ -215,6 +215,10 @@ $functional = static function (array $data) use ($result_dir): array {
 	return package_smoke_functional_result($result_dir . '/result.json');
 };
 check('A clean walkthrough passes', array('ok' => true, 'reason' => 'All functional page flows passed.'), $functional(array('login' => array('logged_in' => true), 'logout' => array('confirmed' => true), 'flows' => array($flow))));
+check('Ignored unload policy errors are counted on a pass', array('ok' => true, 'ignored' => 8, 'reason' => 'All functional page flows passed; ignored 8 known unload policy errors.'),
+	$functional(array('login' => array('logged_in' => true), 'logout' => array('confirmed' => true), 'flows' => array(array('ignored_console_errors' => 3) + $flow, array('ignored_console_errors' => 5) + $flow))));
+check('Zero ignored errors keep the default reason', array('ok' => true, 'reason' => 'All functional page flows passed.'),
+	$functional(array('login' => array('logged_in' => true), 'logout' => array('confirmed' => true), 'flows' => array(array('ignored_console_errors' => 0) + $flow))));
 check('Failed login, fatal page, and logged fatal are all named', array('ok' => false, 'reason' => 'admin login failed; 01-home returned FATAL; debug.log recorded a new PHP fatal.'),
 	$functional(array('login' => array('logged_in' => false), 'logout' => array('confirmed' => true), 'flows' => array(array('verdict' => 'FATAL') + $flow), 'new_fatals' => array('PHP Fatal error: x'))));
 check('No flows fails', array('ok' => false, 'reason' => 'no page flows were recorded.'), $functional(array('login' => array('logged_in' => true), 'logout' => array('confirmed' => true), 'flows' => array())));

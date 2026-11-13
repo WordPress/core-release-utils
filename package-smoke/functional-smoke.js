@@ -66,11 +66,12 @@ const ADMIN_FLOWS = [
   const visit = async (slug, path) => {
     const consoleErrs = [];
     const scriptFailures = [];
+    let ignoredConsoleErrs = 0;
     const onmsg = (m) => {
-      if (m.type() === 'error' && !(IGNORE_UNLOAD_POLICY && m.text() === UNLOAD_POLICY_ERROR)) {
-        const location = m.location();
-        consoleErrs.push(m.text().slice(0, 1000) + (location.url ? ` (at ${location.url}:${location.lineNumber + 1})` : ''));
-      }
+      if (m.type() !== 'error') return;
+      if (IGNORE_UNLOAD_POLICY && m.text() === UNLOAD_POLICY_ERROR) { ignoredConsoleErrs++; return; }
+      const location = m.location();
+      consoleErrs.push(m.text().slice(0, 1000) + (location.url ? ` (at ${location.url}:${location.lineNumber + 1})` : ''));
     };
     const onerr = (e) => {
       const frame = (e.stack || '').split('\n').find((l) => /^\s*at\s.*(?:https?|file):\/\//.test(l));
@@ -108,6 +109,7 @@ const ADMIN_FLOWS = [
       verdict,
       console_errors: consoleErrs.length,
       console_error_messages: consoleErrs.slice(0, 3),
+      ignored_console_errors: ignoredConsoleErrs,
       script_failures: scriptFailures,
     });
     return verdict;

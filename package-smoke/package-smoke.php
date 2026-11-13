@@ -668,7 +668,7 @@ function package_smoke_preserve_artifacts(string $status, string $source, string
 }
 
 /**
- * @return array{ok:bool,reason:string}
+ * @return array{ok:bool,reason:string,ignored?:int}
  */
 function package_smoke_functional_result(string $path): array {
 	if (!is_file($path)) {
@@ -687,6 +687,7 @@ function package_smoke_functional_result(string $path): array {
 		return array('ok' => false, 'reason' => 'The functional smoke result was not an object.');
 	}
 	$problems = array();
+	$ignored = 0;
 	if (true !== ($result['login']['logged_in'] ?? false)) {
 		$problems[] = 'admin login failed';
 	}
@@ -702,6 +703,7 @@ function package_smoke_functional_result(string $path): array {
 				continue;
 			}
 			$slug = is_string($flow['slug'] ?? null) ? $flow['slug'] : 'unknown page';
+			$ignored += is_int($flow['ignored_console_errors'] ?? null) ? max(0, $flow['ignored_console_errors']) : 0;
 			$verdict = $flow['verdict'] ?? null;
 			if ('OK' !== $verdict) {
 				$problems[] = "{$slug} returned " . (is_string($verdict) ? $verdict : 'an unknown verdict');
@@ -732,6 +734,10 @@ function package_smoke_functional_result(string $path): array {
 	}
 	if ($problems) {
 		return array('ok' => false, 'reason' => implode('; ', array_unique($problems)) . '.');
+	}
+	if ($ignored > 0) {
+		$noun = 1 === $ignored ? 'error' : 'errors';
+		return array('ok' => true, 'ignored' => $ignored, 'reason' => "All functional page flows passed; ignored {$ignored} known unload policy {$noun}.");
 	}
 	return array('ok' => true, 'reason' => 'All functional page flows passed.');
 }
@@ -1146,7 +1152,7 @@ function package_smoke_functional(
 	} else {
 		$functional_result = package_smoke_functional_result($functional_directory . '/result.json');
 		$row['e2e_smoke'] = $functional_result['ok'] ? 'pass' : 'fail';
-		if (!$functional_result['ok']) {
+		if (!$functional_result['ok'] || 0 < ($functional_result['ignored'] ?? 0)) {
 			$reasons[] = 'Functional smoke: ' . $functional_result['reason'];
 		}
 	}
