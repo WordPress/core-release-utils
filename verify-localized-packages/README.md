@@ -13,6 +13,10 @@ Pass the newest version on each branch in the release. Options: `--locales=LIST`
 
 Exit 0 when every file exists. Exit 2 when a file is missing or could not be checked: report it in #meta-i18n. Exit 1 when the script broke, a version has no expected locales (check it, or pass `--locales`), or a lookup for the expected locales failed three times.
 
+## In CI
+
+The `Release checks: Localized packages` workflow (`.github/workflows/localized-packages.yml`) runs this tool. Start it by hand after auto-updates are on. Inputs: `versions`, `locales` and `timeout` (default `3h`; `0` checks once).
+
 ## How it works
 
 - A meta.wordpress.org job builds the files 1–3 hours after the en_US package. It fails silently for some locales.

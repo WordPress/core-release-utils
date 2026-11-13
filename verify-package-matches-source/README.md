@@ -13,6 +13,10 @@ php verify-package-matches-source.php --repository=WordPress/wordpress-develop -
 
 Exit 0 when the zip matches. Exit 2 when a file differs, is missing or is added; the output names the files. Exit 1 when the script broke.
 
+## In CI
+
+The `Release checks: Packages` workflow (`.github/workflows/package-checks.yml`) runs this tool on each zip, next to `package-smoke`. See the [package-smoke README](../package-smoke/README.md#in-ci).
+
 ## How it works
 
 - Fetches the version's tag (`7.1` uses `7.1.0`) from the checkout's origin into `refs/verify-package-matches-source/tags/`.
@@ -38,7 +42,7 @@ Exit 0 when the zip matches. Exit 2 when a file differs, is missing or is added;
 
 - PHP 8.1 or later with the zip extension and `allow_url_fopen` on.
 - Git.
-- A full clone of `WordPress/wordpress-develop` with `origin` pointing at GitHub. It does not need to be clean.
+- A clone of `WordPress/wordpress-develop` with `origin` pointing at GitHub. A partial clone (`git clone --filter=blob:none`) is enough. It does not need to be clean.
 
 ## Tests
 

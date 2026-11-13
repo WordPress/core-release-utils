@@ -1,0 +1,59 @@
+# Waits until the release tags on core.svn reach the WordPress/WordPress Git mirror. Start it after the SVN tags are created.
+name: "Release checks: Tags reached mirror"
+
+on:
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: 'Comma-separated release tags, for example 7.1.5,7.0.6'
+        required: true
+        type: string
+      timeout:
+        description: 'How long to wait for the tags'
+        required: false
+        type: string
+        default: '45m'
+      interval:
+        description: 'Time between checks (the tool default is 60s)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  verify-tags-reached-mirror:
+    name: Verify tags reached the mirror
+    runs-on: ubuntu-latest
+    env:
+      VERSIONS: ${{ inputs.versions }}
+      TIMEOUT: ${{ inputs.timeout }}
+      INTERVAL: ${{ inputs.interval }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.1'
+          coverage: none
+      - name: Check the inputs
+        run: php .github/scripts/check-inputs.php
+      - name: Run verify-tags-reached-mirror
+        id: run
+        run: |
+          args=(--tags="$VERSIONS" --timeout="$TIMEOUT")
+          [ -z "$INTERVAL" ] || args+=(--interval="$INTERVAL")
+          php verify-tags-reached-mirror/verify-tags-reached-mirror.php "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/output.log"
+      - name: Write the summary
+        if: ${{ always() && steps.run.outcome != 'skipped' }}
+        run: |
+          {
+            echo '```'
+            sed -n '/^Summary$/,$p' "$RUNNER_TEMP/output.log" | grep . || tail -n 20 "$RUNNER_TEMP/output.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
