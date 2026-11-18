@@ -18,7 +18,7 @@ require_once __DIR__ . '/lib/check-helphub-credits-lib.php';
 function helphub_credits_usage(string $script): never {
 	fail(
 		"Usage: {$script} --release=<X.Y.Z> --manifest=<helphub-manifest-X.Y.Z.json> [--site=<url>] [--user=<login>] "
-		. '[--only=<X.Y.Z>] [--news-post=<URL or file>] [--note=<text>]... [--verbose] [--help]'
+		. '[--only=<X.Y.Z>] [--news-post=<URL or file>] [--note=[<X.Y.Z,...>:]<text>]... [--verbose] [--help]'
 		. "\n\nHelpHub mode reads the application password from the HELPHUB_APP_PASSWORD environment variable."
 	);
 }
@@ -110,13 +110,21 @@ $options = cli_options($argv, array(
 ));
 if (isset($options['help'])) {
 	echo "Usage: {$argv[0]} --release=<X.Y.Z> --manifest=<helphub-manifest-X.Y.Z.json> [--site=<url>] [--user=<login>] "
-		. "[--only=<X.Y.Z>] [--news-post=<URL or file>] [--note=<text>]... [--verbose] [--help]\n"
-		. "\nRepeat --note for each non-fix security bullet: NOTE with --news-post, an expected line on every HelpHub page otherwise.\n"
+		. "[--only=<X.Y.Z>] [--news-post=<URL or file>] [--note=[<X.Y.Z,...>:]<text>]... [--verbose] [--help]\n"
+		. "\nRepeat --note for each non-fix security bullet: NOTE with --news-post, an expected line on every HelpHub page (or only the pages named by an optional version prefix) otherwise.\n"
+		. "A <X.Y.Z,...>: prefix limits a note to those versions' pages; an unknown version exits 2.\n"
 		. "Example: --news-post=example-post.html --note=\"An update to the example widget library.\"\n"
+		. "Scoped:  --note=\"6.9.5,6.8.6:An update to the example widget library.\"\n"
 		. "\nHelpHub mode reads the application password from the HELPHUB_APP_PASSWORD environment variable.\n";
 	exit(0);
 }
 set_verbose(isset($options['verbose']));
+$raw_notes = (array) ($options['note'] ?? array());
+try {
+	$options['note'] = helphub_draft_note_texts($raw_notes);
+} catch (InvalidArgumentException $exception) {
+	fail($exception->getMessage(), 2);
+}
 $option_error = helphub_credits_news_option_error($options);
 if (null !== $option_error) {
 	if (null === $option_error['message']) {
@@ -138,10 +146,10 @@ try {
 		fail($option_error['message'], $option_error['code']);
 	}
 	if ($news_post) {
-		exit(helphub_credits_check_news($manifest, helphub_credits_read_news($options['news-post']), (array) ($options['note'] ?? array())));
+		exit(helphub_credits_check_news($manifest, helphub_credits_read_news($options['news-post']), $options['note']));
 	}
 
-	$notes    = helphub_draft_notes((array) ($options['note'] ?? array()));
+	$notes    = helphub_draft_note_specs($raw_notes);
 	$user     = isset($options['user']) && is_string($options['user']) && '' !== $options['user'] ? $options['user'] : null;
 	$password = getenv('HELPHUB_APP_PASSWORD');
 	$password = is_string($password) ? trim($password) : '';
@@ -182,6 +190,7 @@ try {
 		);
 	}
 
+	$version_by_line = array();
 	$resolved      = array(); // Branch line => version, for manifest targets the wave actually reached.
 	$missing_lines = array();
 	$wave          = array();
@@ -209,6 +218,8 @@ try {
 		$missing_lines = array_keys($manifest['targets']);
 	}
 
+	helphub_credits_note_versions_check($notes, array_keys($manifest['targets']), $version_by_line);
+
 	if (null !== $only) {
 		helphub_select(array_values($resolved), $only);
 		$resolved      = array_filter($resolved, static fn(string $version): bool => $version === $only);
@@ -228,7 +239,8 @@ try {
 		if (null !== $live) {
 			$live = array_map('helphub_credits_normalize_line', $live);
 		}
-		$expected = helphub_credits_expected_lines($manifest['fixes'], $manifest['credits'], $line, $manifest['issues'] ?? array(), $entries, $notes);
+		$page_notes = helphub_draft_notes_for_version($notes, $version);
+		$expected = helphub_credits_expected_lines($manifest['fixes'], $manifest['credits'], $line, $manifest['issues'] ?? array(), $entries, $page_notes);
 
 		if (null === $live) {
 			echo "  {$version}: MISMATCH\n";
@@ -241,9 +253,10 @@ try {
 		$ok  = !$expected['fill_ins'] && !$cmp['missing'] && !$cmp['unexpected'];
 
 		if ($ok) {
-			$credit_count = count($expected['lines']) - count($notes);
+			$note_count   = count($page_notes);
+			$credit_count = count($expected['lines']) - $note_count;
 			echo "  {$version}: OK ({$credit_count}" . (1 === $credit_count ? ' credit' : ' credits')
-				. ($notes ? ', ' . count($notes) . (1 === count($notes) ? ' note' : ' notes') : '') . ")\n";
+				. ($note_count ? ', ' . $note_count . (1 === $note_count ? ' note' : ' notes') : '') . ")\n";
 			$ok_count++;
 			continue;
 		}
