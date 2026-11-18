@@ -968,7 +968,7 @@ $manifest_major = json_encode(array_replace($manifest_built, array('release' => 
 check('HelpHub manifest accepts an X.Y release', '7.2', helphub_manifest_decode($manifest_major)['release']);
 
 check('Previous release tag decrements a multi-digit patch', '6.9.11', helphub_previous_release_tag('6.9.12'));
-check('Previous release tag removes patch one', '7.1', helphub_previous_release_tag('7.1.1'));
+check('Previous release tag for patch one is the X.Y.0 tag', '7.1.0', helphub_previous_release_tag('7.1.1'));
 check('Previous release tag decrements an older release line', '4.7.39', helphub_previous_release_tag('4.7.40'));
 check_throws('Previous release tag refuses X.Y', InvalidArgumentException::class,
 	static fn() => helphub_previous_release_tag('9.9'));
@@ -1001,6 +1001,7 @@ $missing_files = helphub_expected_files(
 check('Missing branch reports reaching fixes unverified without private references', array(1332), $missing_files['unpinned']);
 check('Missing branch provides no invented files', array(), $missing_files['files']);
 
+$stub_ancestor_code = 0;
 $stub_branch_commit = str_repeat('c', 40);
 $stub_tag_commit = str_repeat('d', 40);
 $stub_runner = static function (array $command, ?string $cwd = null, bool $allow_failure = false) use ($stub_branch_commit, $stub_tag_commit): array {
@@ -1012,6 +1013,9 @@ $stub_runner = static function (array $command, ?string $cwd = null, bool $allow
 	}
 	if (array('git', 'rev-parse', '--verify', '--quiet', 'refs/tags/9.9.2^{commit}') === $command) {
 		return array('code' => 1, 'stdout' => '', 'stderr' => '');
+	}
+	if (array('git', 'merge-base', '--is-ancestor', "{$stub_tag_commit}^", $stub_branch_commit) === $command) {
+		return array('code' => $GLOBALS['stub_ancestor_code'], 'stdout' => '', 'stderr' => '');
 	}
 	if (array('git', 'diff', '--no-renames', '--name-only', $stub_tag_commit, $stub_branch_commit) === $command) {
 		return array('code' => 0, 'stdout' => "src/wp-includes/certificates/ca-bundle.crt\nsrc/wp-includes/example.php\n", 'stderr' => '');
@@ -1025,24 +1029,43 @@ $stub_manifest = array(
 );
 $stub_files = helphub_backport_branch_files('unused', $stub_manifest, '9.9', '9.9.2', $stub_runner);
 check('Previous-tag diff names the previous release tag as its base', '9.9.1', $stub_files['base']);
-check('Previous-tag diff includes a release-branch certificate change', true,
+check('Stubbed tag..head argv includes a release-branch certificate change', true,
 	in_array('src/wp-includes/certificates/ca-bundle.crt', $stub_files['files'], true));
-check('Previous-tag diff includes the grouped fix', true,
+check('Stubbed tag..head argv includes the grouped fix', true,
 	in_array('src/wp-includes/example.php', $stub_files['files'], true));
 
-$stub_missing = helphub_backport_branch_files('unused', $stub_manifest, '9.9', '9.9.3', $stub_runner);
-check('Missing tag returns a distinct result', '9.9.2', $stub_missing['missing_tag'] ?? null);
 $stub_fetch = helphub_release_tag_fetch_command('unused', '9.9.2');
-check('Missing tag result gives the exact fetch command', $stub_fetch, $stub_missing['fetch_command'] ?? null);
-$stub_expected = helphub_expected_files(
-	'unused',
-	$stub_manifest + array('fixes' => array(9001 => array('9.9'))),
-	'9.9',
-	'9.9.3',
-	$stub_runner
-);
-check('Expected files preserve a missing tag as unverified', 'missing_tag', $stub_expected['source']);
-check('Expected files preserve the missing-tag fetch command', $stub_fetch, $stub_expected['fetch_command']);
+$stub_missing = null;
+try {
+	helphub_backport_branch_files('unused', $stub_manifest, '9.9', '9.9.3', $stub_runner);
+} catch (HelphubMissingTagException $exception) {
+	$stub_missing = $exception;
+}
+check('Missing tag throws its own exception', true, $stub_missing instanceof HelphubMissingTagException);
+check('Missing tag exception names the tag', '9.9.2', $stub_missing?->tag);
+check('Missing tag exception carries the exact fetch command', $stub_fetch, $stub_missing?->fetchCommand);
+check_throws('Expected files let a missing tag through', HelphubMissingTagException::class,
+	static fn() => helphub_expected_files('unused', $stub_manifest + array('fixes' => array(9001 => array('9.9'))), '9.9', '9.9.3', $stub_runner));
+
+$stub_ancestor_code = 1;
+$stub_behind = null;
+try {
+	helphub_backport_branch_files('unused', $stub_manifest, '9.9', '9.9.2', $stub_runner);
+} catch (HelphubBranchBehindException $exception) {
+	$stub_behind = $exception;
+}
+check('Branch behind the previous tag is refused with a rebuild instruction',
+	'grouped predates 9.9.1; rebuild it from the current 9.9 branch', $stub_behind?->getMessage());
+$stub_ancestor_code = 128;
+check_throws('An unreadable ancestry check is an error, not a pass', RuntimeException::class,
+	static fn() => helphub_backport_branch_files('unused', $stub_manifest, '9.9', '9.9.2', $stub_runner));
+$stub_ancestor_code = 0;
+
+check_throws('A next version from an alpha cannot name a previous tag', InvalidArgumentException::class,
+	static fn() => helphub_backport_branch_files('unused', $stub_manifest, '9.9', '9.9.0', $stub_runner));
+
+check('Dotfiles never reach a public page', array('src/wp-includes/example.php' => true),
+	helphub_documented_paths(array('src/wp-content/themes/twentytwenty/.nvmrc', 'src/.github/workflows/x.yml', 'src/wp-includes/example.php')));
 
 // Exhausted HTTP retries name GET without reading an undefined method variable.
 $http_error = '';

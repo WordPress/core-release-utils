@@ -335,8 +335,9 @@ failure, `2` needs human attention.
 3. **Each page's revised-file list matches what that release shipped.** The tool
    diffs the previous release tag against the recorded backport branch head.
    This includes non-security commits made directly on the release branch after
-   the previous release. A directory path still matches nothing and surfaces
-   here too.
+   the previous release. It names the tag `X.Y.0` for an `X.Y.1` page, and it
+   refuses a branch that predates that tag. A directory path still matches
+   nothing and surfaces here too.
 
    The branch is the source, not the fixes' pinned references, because a fix
    does not keep the same shape on every branch. On 4.7 the Quick Edit fix lives

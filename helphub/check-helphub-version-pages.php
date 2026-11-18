@@ -106,10 +106,13 @@ try {
 		if (!in_array($line, array_keys($manifest['targets']), true)) {
 			continue;
 		}
-		$expected = helphub_expected_files($checkout, $manifest, $line, $version);
-		if (null !== $expected['missing_tag']) {
-			$unverified[] = "Page {$version} file list could not be checked: previous release tag "
-				. "{$expected['missing_tag']} is not in the checkout. Run: {$expected['fetch_command']}";
+		try {
+			$expected = helphub_expected_files($checkout, $manifest, $line, $version);
+		} catch (HelphubMissingTagException $exception) {
+			$unverified[] = "Page {$version} file list could not be checked: {$exception->getMessage()} Run: {$exception->fetchCommand}";
+			continue;
+		} catch (HelphubBranchBehindException $exception) {
+			$unverified[] = "Page {$version} file list could not be checked: {$exception->getMessage()}.";
 			continue;
 		}
 		if (null === $expected['ref']) {

@@ -96,13 +96,6 @@ try {
 				2
 			);
 		}
-		if (isset($branch['missing_tag'])) {
-			fail(
-				"Cannot draft {$version}: previous release tag {$branch['missing_tag']} is not in the checkout. "
-				. "Run this command, then try again: {$branch['fetch_command']}",
-				2
-			);
-		}
 		// An empty branch needs attention before drafting.
 		$unusable = helphub_unusable_file_list($branch);
 		if (null !== $unusable) {
@@ -120,7 +113,7 @@ try {
 		$release_paths = helphub_release_paths($checkout, $branch['branch']);
 
 		// Read package changes from the recorded branch and base.
-		$packages = helphub_revised_packages($checkout, $branch['branch'], $branch['base']);
+		$packages = helphub_revised_packages($checkout, $branch['branch'], "refs/tags/{$branch['base']}");
 
 		$page = helphub_draft_page(
 			$version,
@@ -182,7 +175,9 @@ try {
 	echo "\nEvery fix on every page carries an authored credit line.\n";
 	echo "Review each draft, then paste it into the HelpHub editor. Nothing was published.\n";
 	exit(0);
-} catch (InvalidArgumentException $exception) {
+} catch (HelphubMissingTagException $exception) {
+	fail("Cannot draft: {$exception->getMessage()} Run this command, then try again: {$exception->fetchCommand}", 2);
+} catch (HelphubBranchBehindException | InvalidArgumentException $exception) {
 	fail($exception->getMessage(), 2);
 } catch (RuntimeException $exception) {
 	fail($exception->getMessage());
