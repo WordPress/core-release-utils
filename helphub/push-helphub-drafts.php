@@ -13,7 +13,7 @@ require_once __DIR__ . '/lib/push-helphub-drafts-lib.php';
 
 function helphub_push_usage(string $script): never {
 	fail(
-		"Usage: {$script} --site=<url> --user=<login> --release=<X.Y.Z> (--create --pages=<dir> | --replace=<text> --with=<text>) "
+		"Usage: {$script} --site=<url> --user=<login> --release=<X.Y.Z> (--create --pages=<dir> | --replace=<text> --with=<text> [--published=<X.Y.Z,...>]) "
 		. '[--only=<X.Y.Z>] [--execute] [--verbose] [--help]'
 		. "\n\nThe application password is read from the HELPHUB_APP_PASSWORD environment variable."
 	);
@@ -97,6 +97,24 @@ function helphub_find_page(string $site, string $version): ?array {
 	return is_array($result['data']) && $result['data'] ? $result['data'][0] : null;
 }
 
+/** Look up every page at a version's slug, in any status, with its raw content. */
+function helphub_lookup_pages(string $site, string $version): array {
+	$url = helphub_rest_url($site, null, array(
+		'slug'    => helphub_version_slug($version),
+		'status'  => 'publish,draft,pending,private,future',
+		'context' => 'edit',
+		'_fields' => 'id,slug,status,content',
+	));
+	$result = helphub_request($url, 'GET');
+	if (200 !== $result['code'] || !is_array($result['data'])) {
+		throw new RuntimeException(
+			"Lookup failed for {$version} (HTTP {$result['code']}). " . substr($result['raw'], 0, 200)
+		);
+	}
+
+	return array_values($result['data']);
+}
+
 /** Name a page for a skipped-line message. */
 function helphub_page_label(array $page): string {
 	$slug = isset($page['slug']) && is_string($page['slug']) ? trim($page['slug']) : '';
@@ -109,10 +127,10 @@ function helphub_page_label(array $page): string {
 }
 
 $options = cli_options($argv, array(
-	'site:', 'user:', 'release:', 'pages:', 'only:', 'replace:', 'with:', 'create', 'execute', 'verbose', 'help',
+	'site:', 'user:', 'release:', 'pages:', 'only:', 'replace:', 'with:', 'published:', 'create', 'execute', 'verbose', 'help',
 ));
 if (isset($options['help'])) {
-	echo "Usage: {$argv[0]} --site=<url> --user=<login> --release=<X.Y.Z> (--create --pages=<dir> | --replace=<text> --with=<text>) "
+	echo "Usage: {$argv[0]} --site=<url> --user=<login> --release=<X.Y.Z> (--create --pages=<dir> | --replace=<text> --with=<text> [--published=<X.Y.Z,...>]) "
 		. "[--only=<X.Y.Z>] [--execute] [--verbose] [--help]\n"
 		. "\nThe application password is read from the HELPHUB_APP_PASSWORD environment variable.\n";
 	exit(0);
@@ -137,6 +155,9 @@ if ($replacing && (!isset($options['with']) || !is_string($options['with']))) {
 if ($replacing && (!is_string($options['replace']) || '' === $options['replace'])) {
 	fail('--replace needs a non-empty anchor to look for.', 2);
 }
+if (isset($options['published']) && (!$replacing || !is_string($options['published']))) {
+	fail('--published names the live versions to edit, and works only with --replace.', 2);
+}
 
 $password = getenv('HELPHUB_APP_PASSWORD');
 $password = is_string($password) ? trim($password) : '';
@@ -156,6 +177,7 @@ $execute = isset($options['execute']);
 try {
 	$site = helphub_require_https($options['site']);
 	$only = isset($options['only']) && is_string($options['only']) ? $options['only'] : null;
+	$published = isset($options['published']) ? helphub_published_versions($options['published']) : null;
 
 	echo ($execute ? 'Writing to' : 'DRY RUN against') . " {$site}\n";
 	echo str_repeat('-', 66) . "\n";
@@ -204,6 +226,51 @@ try {
 				);
 			}
 			echo "    created id {$id}, edit at {$site}/wp-admin/post.php?post={$id}&action=edit\n";
+			$done++;
+		}
+	} elseif (null !== $published) {
+		$search  = $options['replace'];
+		$replace = $options['with'];
+		foreach (helphub_select($published, $only) as $version) {
+			$matches = helphub_lookup_pages($site, $version);
+			$refusal = helphub_published_refusal($version, $matches);
+			if (null !== $refusal) {
+				$skipped[] = $refusal;
+				continue;
+			}
+			$page = $matches[0];
+			$body = (string) ($page['content']['raw'] ?? '');
+			try {
+				$updated = helphub_apply_replacement($body, $search, $replace);
+			} catch (RuntimeException $exception) {
+				$skipped[] = "{$version}: " . $exception->getMessage();
+				continue;
+			}
+			echo "  edit published {$page['slug']} (id {$page['id']})\n" . helphub_describe_replacement($search, $replace) . "\n";
+			if (!$execute) {
+				$done++;
+				continue;
+			}
+			$current = helphub_lookup_pages($site, $version);
+			if (null !== helphub_published_refusal($version, $current) || $body !== ($current[0]['content']['raw'] ?? null)) {
+				$skipped[] = "{$version} changed while this ran. Nothing was written to it.";
+				continue;
+			}
+			$write = helphub_request(
+				helphub_rest_url($site, (int) $page['id']),
+				'POST',
+				helphub_content_payload($updated)
+			);
+			if (200 !== $write['code']) {
+				throw new RuntimeException(
+					"Edit failed for {$version} (HTTP {$write['code']}). " . substr($write['raw'], 0, 300)
+				);
+			}
+			$after = helphub_lookup_pages($site, $version);
+			if (null !== helphub_published_refusal($version, $after) || $updated !== ($after[0]['content']['raw'] ?? null)) {
+				$skipped[] = "{$version} was written but reads back differently. Check id {$page['id']} in the editor.";
+				continue;
+			}
 			$done++;
 		}
 	} else {
@@ -302,6 +369,8 @@ try {
 	}
 	if (!$execute) {
 		echo "\nNothing was written. Re-run with --execute when the above looks right.\n";
+	} elseif (null !== $published) {
+		echo "\nOnly the named published pages were edited, and no status was sent.\n";
 	} else {
 		echo "\nEvery page is a draft. Publishing stays a human action in the editor.\n";
 	}

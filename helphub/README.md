@@ -7,7 +7,8 @@ scope, generate, validate, then a human edits and publishes. Three more check
 live credits and keep the versions index current.
 
 `push-helphub-drafts.php` is the only tool in this repository that writes to a
-live public site. It cannot publish—only create and edit drafts.
+live public site. It cannot publish. It creates and edits drafts, and with
+`--published` it corrects the content of live version pages you name.
 
 ## Where the manifest comes from
 
@@ -236,6 +237,29 @@ page: zero matches means the page is not what you think it is, several means
 the edit is ambiguous. Both fail rather than guess. Each page's status is
 re-read immediately before writing, so a page published mid-run is left alone.
 
+### Correcting a published page
+
+```sh
+php helphub/push-helphub-drafts.php \
+  --site=… --user=… --release=7.0.3 \
+  --published=7.0.3,6.9.4 \
+  --replace="$(cat 7.0.3.files.old)" --with="$(cat 7.0.3.files.new)" --only=7.0.3
+```
+
+A page can go live before a mistake on it is found. `--published` is the only
+way to edit one, and it is opt-in per version: it looks up each named version
+by slug and refuses a page that is missing, duplicated, or not published. A
+version left off the list is never read or written, and `--only` must name one
+on the list. The anchor rules are the same as for drafts.
+
+The dry run prints the lines the replacement removes and adds. With
+`--execute`, the page is re-read just before writing and left alone if its
+status or content changed. The write sends content only, never a status, so
+the page stays published. The page is then read back and must hold exactly the
+new body. To confirm by hand, dry-run the reverse edit (swap `--replace` and
+`--with`): it should match once, while the forward edit should now find no
+anchor.
+
 ## Checking live credits
 
 Drafting and checking pages happens before a release ships. Once it does, a
@@ -266,7 +290,7 @@ run cannot find is reported unreadable, never missing and never a pass—it
 might be a draft nobody can see yet.
 
 A mismatch this tool finds is fixed by a human: push-helphub-drafts.php's
-`--replace` for a draft, a manual edit for a live page. A live-page writer was
+`--replace` for a draft, `--replace` with `--published` for a live page. A live-page writer was
 deliberately left out of this tool until bullets can be located by exact
 source span rather than a positional or search-string lookup.
 

@@ -164,3 +164,64 @@ function helphub_rest_url(string $site, ?int $id = null, array $query = array())
 
 	return $base;
 }
+
+/** Compared against, never sent: a published edit must find the page live and leave it live. */
+const HELPHUB_LIVE_STATUS = 'publish';
+
+/** Parse --published into the versions a run may edit, newest first. */
+function helphub_published_versions(string $list): array {
+	$versions = array();
+	foreach (explode(',', $list) as $version) {
+		$version = trim($version);
+		helphub_version_slug($version);
+		$versions[$version] = true;
+	}
+
+	return helphub_sort_versions(array_map('strval', array_keys($versions)));
+}
+
+/** Say why a version's lookup must not be edited as a published page, or return null. */
+function helphub_published_refusal(string $version, array $matches): ?string {
+	if (!$matches) {
+		return "{$version} has no page. Nothing was changed.";
+	}
+	if (1 < count($matches)) {
+		return sprintf('%s matched %d pages. Nothing was changed.', $version, count($matches));
+	}
+	$page   = $matches[0];
+	$slug   = is_string($page['slug'] ?? null) ? $page['slug'] : '';
+	$status = is_string($page['status'] ?? null) ? $page['status'] : 'unknown';
+	if (helphub_version_slug($version) !== $slug) {
+		return "{$version} came back as slug '{$slug}'. Nothing was changed.";
+	}
+	if (HELPHUB_LIVE_STATUS !== $status) {
+		return "{$version} is {$status}, not published. Left alone; edit a draft without --published.";
+	}
+
+	return null;
+}
+
+/** The body of a published-page edit: content only, so WordPress keeps the page's status. */
+function helphub_content_payload(string $content): array {
+	if ('' === trim($content)) {
+		throw new InvalidArgumentException('Refusing to empty a published page.');
+	}
+
+	return array('content' => $content);
+}
+
+/** Show a replacement as the lines it removes and adds, splitting on newlines and <br>. */
+function helphub_describe_replacement(string $search, string $replace): string {
+	$split = static fn(string $text): array => preg_split('~<br\s*/?>|\R~i', $text) ?: array();
+	$old   = $split($search);
+	$new   = $split($replace);
+	$lines = array();
+	foreach (array_diff($old, $new) as $line) {
+		$lines[] = '    - ' . $line;
+	}
+	foreach (array_diff($new, $old) as $line) {
+		$lines[] = '    + ' . $line;
+	}
+
+	return $lines ? implode("\n", $lines) : '    (no line changes)';
+}
