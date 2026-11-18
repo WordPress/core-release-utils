@@ -70,7 +70,9 @@ try {
 	foreach (array_keys($manifest['targets']) as $target) {
 		$reaching = helphub_fixes_for_target($manifest['fixes'], $target);
 		$version  = helphub_branch_version($checkout, $target);
-		$branch   = helphub_backport_branch_files($checkout, $manifest, $target);
+		$branch   = null === $version
+			? null
+			: helphub_backport_branch_files($checkout, $manifest, $target, $version['next']);
 		$latest   = null === $tags ? null : helphub_latest_release_tag($target, $tags);
 
 		if (null !== $tags && null !== $version) {
@@ -81,19 +83,24 @@ try {
 		}
 
 		if (null === $version) {
-			$unverified[] = "Branch {$target} is not in the checkout, so its version could not be read.";
+			$unverified[] = "Branch {$target} is not in the checkout, so its page version and file count are unverified.";
 		}
-		if (null === $branch) {
+		if (null !== $branch && isset($branch['missing_tag'])) {
+			$unverified[] = "Page {$version['next']} file count is unknown because previous release tag "
+				. "{$branch['missing_tag']} is not in the checkout. Run: {$branch['fetch_command']}";
+		} elseif (null === $branch && null !== $version) {
 			$unverified[] = "No backport branch for {$target} in the checkout, so its file count is unknown.";
 		}
 
 		// An unavailable branch cannot establish a file count.
-		$unusable = null === $branch ? null : helphub_unusable_file_list($branch);
+		$unusable = null === $branch || isset($branch['missing_tag'])
+			? null
+			: helphub_unusable_file_list($branch);
 		if (null !== $unusable) {
 			$unverified[] = "Branch {$target} has no file list to preview: {$unusable}";
 		}
 
-		$files = null === $branch || null !== $unusable
+		$files = null === $branch || isset($branch['missing_tag']) || null !== $unusable
 			? null
 			: count(helphub_documented_paths($branch['files']));
 		$rows[$target] = array(

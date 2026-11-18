@@ -659,36 +659,20 @@ function helphub_diff_package_pins(array $base_pins, array $branch_pins): array 
 }
 
 /**
- * The `@wordpress/*` package pins a branch's backport revised.
+ * The `@wordpress/*` package pins a release revised.
  *
- * Reads `package.json` at the base a branch was cut from and at the branch
- * itself — the same pair helphub_backport_branch_files() resolves for the file
- * list — and reports the pins that changed. This is what makes the "List of
- * packages revised" section derived rather than asserted: a Gutenberg security
- * fix delivered as a package bump revises these pins, and the page has to say
- * so the way it already does for files.
+ * Reads `package.json` at the previous release tag and at the branch itself —
+ * the same pair helphub_backport_branch_files() resolves for the file list —
+ * and reports the pins that changed. This makes the "List of packages revised"
+ * section derived rather than asserted.
  *
  * A missing `package.json` at either ref is a real answer, not an error: it
- * means the branch, or the base it was cut from, predates
- * Gutenberg-as-a-package, and an empty map is exactly what those branches
- * should publish.
+ * means the branch or previous release predates Gutenberg-as-a-package, and an
+ * empty map is exactly what those branches should publish.
  *
  * A ref that does not resolve is not that answer. Both failures exit 128, and
  * treating them alike would let a typo publish "No package was revised." on
  * every page, which is the mistake this function exists to stop making.
- *
- * **The base is read where the branch forked from it, not at its tip.** The
- * file list already compares `base...branch`, which is merge-base relative and
- * answers "what did this branch change". Reading `package.json` at the base tip
- * asks a different question — how do the two differ right now — and the two
- * answers separate the moment the base moves ahead.
- *
- * Measured on 2026-08-11, drafting 7.0.4: every backport branch sat five
- * commits behind its base, because 7.0.3 had shipped since they were cut. The
- * tip comparison reported 7.0.3's own Gutenberg bump as 7.0.4 revising the pin,
- * on twelve of twenty-four pages, naming a version *older* than the one that
- * branch already ships. A page would have told readers a security release
- * downgraded a package it never touched.
  *
  * @return array<string,string> Package name to shipped version. Sorted by name.
  */
@@ -806,13 +790,33 @@ function helphub_manifest_branch_check(array $entry, string $checkout_commit): v
 	}
 }
 
-function helphub_backport_branch_files(string $checkout, array $manifest, string $target): ?array {
+function helphub_previous_release_tag(string $version): string {
+	if (1 !== preg_match('/\A([0-9]+)\.([0-9]+)\.([1-9][0-9]*)\z/D', $version, $match)) {
+		throw new InvalidArgumentException("Version {$version} must be X.Y.Z with Z at least 1.");
+	}
+
+	$patch = (int) $match[3];
+	if (1 === $patch) {
+		return "{$match[1]}.{$match[2]}";
+	}
+
+	return "{$match[1]}.{$match[2]}." . ($patch - 1);
+}
+
+function helphub_release_tag_fetch_command(string $checkout, string $tag): string {
+	return 'git -C ' . escapeshellarg($checkout)
+		. ' fetch https://github.com/WordPress/wordpress-develop'
+		. " refs/tags/{$tag}:refs/tags/{$tag}";
+}
+
+function helphub_backport_branch_files(string $checkout, array $manifest, string $target, string $version, ?callable $runner = null): ?array {
+	$runner ??= 'run_command';
 	$entry = $manifest['targets'][$target];
 	if (null === $entry) {
 		return null;
 	}
 	$candidate = $entry['branch'];
-	$branch_check = run_command(
+	$branch_check = $runner(
 		array('git', 'rev-parse', '--verify', '--quiet', $candidate . '^{commit}'),
 		$checkout,
 		true
@@ -823,19 +827,22 @@ function helphub_backport_branch_files(string $checkout, array $manifest, string
 	$checkout_commit = trim($branch_check['stdout']);
 	helphub_manifest_branch_check($entry, $checkout_commit);
 	$commit = substr($checkout_commit, 0, 10);
-	$base = $entry['base'];
-	$base_check = run_command(
-		array('git', 'rev-parse', '--verify', '--quiet', $base . '^{commit}'),
+	$base = helphub_previous_release_tag($version);
+	$tag_check = $runner(
+		array('git', 'rev-parse', '--verify', '--quiet', "refs/tags/{$base}^{commit}"),
 		$checkout,
 		true
 	);
-	if (0 !== $base_check['code']) {
-		return null;
+	if (0 !== $tag_check['code']) {
+		return array(
+			'missing_tag'   => $base,
+			'fetch_command' => helphub_release_tag_fetch_command($checkout, $base),
+		);
 	}
-	$base_commit = trim($base_check['stdout']);
+	$tag_commit = trim($tag_check['stdout']);
 
-	$result = run_command(
-		array('git', 'diff', '--no-renames', '--name-only', "{$base_commit}...{$checkout_commit}"),
+	$result = $runner(
+		array('git', 'diff', '--no-renames', '--name-only', $tag_commit, $checkout_commit),
 		$checkout,
 		true
 	);
@@ -908,20 +915,36 @@ function helphub_unusable_file_list(array $branch): ?string {
 function helphub_expected_files(
 	string $checkout,
 	array $manifest,
-	string $target
+	string $target,
+	string $version,
+	?callable $runner = null
 ): array {
-	$branch = helphub_backport_branch_files($checkout, $manifest, $target);
+	$branch = helphub_backport_branch_files($checkout, $manifest, $target, $version, $runner);
+	if (null !== $branch && isset($branch['missing_tag'])) {
+		return array(
+			'files'         => array(),
+			'unpinned'      => array(),
+			'source'        => 'missing_tag',
+			'ref'           => null,
+			'read_from'     => null,
+			'problem'       => null,
+			'missing_tag'   => $branch['missing_tag'],
+			'fetch_command' => $branch['fetch_command'],
+		);
+	}
 	if (null !== $branch) {
 		$files = array_keys(helphub_documented_paths($branch['files']));
 		sort($files);
 
 		return array(
-			'files'     => $files,
-			'unpinned'  => array(),
-			'source'    => 'branch',
-			'ref'       => $branch['branch'],
-			'read_from' => "{$branch['branch']} at {$branch['commit']}",
-			'problem'   => helphub_unusable_file_list($branch),
+			'files'         => $files,
+			'unpinned'      => array(),
+			'source'        => 'branch',
+			'ref'           => $branch['branch'],
+			'read_from'     => "{$branch['branch']} at {$branch['commit']}",
+			'problem'       => helphub_unusable_file_list($branch),
+			'missing_tag'   => null,
+			'fetch_command' => null,
 		);
 	}
 
@@ -938,12 +961,14 @@ function helphub_expected_files(
 	sort($files);
 
 	return array(
-		'files'     => $files,
-		'unpinned'  => $unpinned,
-		'source'    => 'references',
-		'ref'       => null,
-		'read_from' => 'pinned fix references',
-		'problem'   => null,
+		'files'         => $files,
+		'unpinned'      => $unpinned,
+		'source'        => 'references',
+		'ref'           => null,
+		'read_from'     => 'pinned fix references',
+		'problem'       => null,
+		'missing_tag'   => null,
+		'fetch_command' => null,
 	);
 }
 

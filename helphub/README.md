@@ -332,9 +332,11 @@ failure, `2` needs human attention.
    three. So a target with no page is reported as unverified, not as a defect.
    It still reaches you—a page nobody created is silence rather than an
    error—but it is stated as something the check could not confirm.
-3. **Each page's revised-file list matches what that branch actually shipped**,
-   read from the backport branch the manifest records for that line. A directory
-   path where a file path belongs matches nothing, so it surfaces here too.
+3. **Each page's revised-file list matches what that release shipped.** The tool
+   diffs the previous release tag against the recorded backport branch head.
+   This includes non-security commits made directly on the release branch after
+   the previous release. A directory path still matches nothing and surfaces
+   here too.
 
    The branch is the source, not the fixes' pinned references, because a fix
    does not keep the same shape on every branch. On 4.7 the Quick Edit fix lives
@@ -342,11 +344,18 @@ failure, `2` needs human attention.
    `src/js/_enqueues/admin/inline-edit-post.js`, and comparing against the
    trunk-side reference reports that one file as both missing and unexpected.
 
-   **Fetch the checkout before running.** A stale copy of a backport branch
-   produces a confidently wrong file list. The output names the branch and
-   commit each comparison read so you can check it against the open pull
-   request. A different tip is refused. If the branch or base is not in the
-   checkout, the file list stays unverified.
+   **Fetch the checkout before running.** A stale backport branch produces a
+   confidently wrong file list. The output names the branch and commit used.
+   A different tip is refused.
+
+   The previous release tag must also exist in the checkout. If it is missing,
+   the tools leave the page unverified and print this command:
+
+   ```sh
+   git -C <checkout> fetch https://github.com/WordPress/wordpress-develop refs/tags/<tag>:refs/tags/<tag>
+   ```
+
+   The tools never fetch the tag themselves.
 
 4. **Repeated words, known misspellings, and copied-forward facts.** Checks 1
    to 3 compare pages against each other or against the release, so all three

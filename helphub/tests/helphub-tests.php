@@ -967,6 +967,14 @@ check('Announced count mismatch explains how to repair the manifest',
 $manifest_major = json_encode(array_replace($manifest_built, array('release' => '7.2')), JSON_THROW_ON_ERROR);
 check('HelpHub manifest accepts an X.Y release', '7.2', helphub_manifest_decode($manifest_major)['release']);
 
+check('Previous release tag decrements a multi-digit patch', '6.9.11', helphub_previous_release_tag('6.9.12'));
+check('Previous release tag removes patch one', '7.1', helphub_previous_release_tag('7.1.1'));
+check('Previous release tag decrements an older release line', '4.7.39', helphub_previous_release_tag('4.7.40'));
+check_throws('Previous release tag refuses X.Y', InvalidArgumentException::class,
+	static fn() => helphub_previous_release_tag('9.9'));
+check_throws('Previous release tag refuses patch zero', InvalidArgumentException::class,
+	static fn() => helphub_previous_release_tag('9.9.0'));
+
 // The recorded build must match before any file list is read.
 $branch_entry = array('branch' => 'origin/release/wp-7.1.2-into-7.1', 'commit' => str_repeat('a', 40), 'base' => 'origin/7.1');
 check('Manifest branch match passes', null, helphub_manifest_branch_check($branch_entry, str_repeat('a', 40)));
@@ -983,10 +991,58 @@ check('Mismatch names recorded commit', true, str_contains($branch_error, $branc
 check('Mismatch names checkout commit', true, str_contains($branch_error, str_repeat('b', 40)));
 check('Mismatch tells operator to fetch or regenerate', true, str_contains($branch_error, 'Fetch the checkout or regenerate the manifest'));
 check('Missing manifest branch needs no checkout access', null,
-	helphub_backport_branch_files('unused', array('targets' => array('7.1' => null)), '7.1'));
-$missing_files = helphub_expected_files('unused', array('targets' => array('7.1' => null), 'fixes' => array(1332 => array('7.1'), 1333 => array('7.0'))), '7.1');
+	helphub_backport_branch_files('unused', array('targets' => array('7.1' => null)), '7.1', '7.1.2'));
+$missing_files = helphub_expected_files(
+	'unused',
+	array('targets' => array('7.1' => null), 'fixes' => array(1332 => array('7.1'), 1333 => array('7.0'))),
+	'7.1',
+	'7.1.2'
+);
 check('Missing branch reports reaching fixes unverified without private references', array(1332), $missing_files['unpinned']);
 check('Missing branch provides no invented files', array(), $missing_files['files']);
+
+$stub_branch_commit = str_repeat('c', 40);
+$stub_tag_commit = str_repeat('d', 40);
+$stub_runner = static function (array $command, ?string $cwd = null, bool $allow_failure = false) use ($stub_branch_commit, $stub_tag_commit): array {
+	if (array('git', 'rev-parse', '--verify', '--quiet', 'grouped^{commit}') === $command) {
+		return array('code' => 0, 'stdout' => "{$stub_branch_commit}\n", 'stderr' => '');
+	}
+	if (array('git', 'rev-parse', '--verify', '--quiet', 'refs/tags/9.9.1^{commit}') === $command) {
+		return array('code' => 0, 'stdout' => "{$stub_tag_commit}\n", 'stderr' => '');
+	}
+	if (array('git', 'rev-parse', '--verify', '--quiet', 'refs/tags/9.9.2^{commit}') === $command) {
+		return array('code' => 1, 'stdout' => '', 'stderr' => '');
+	}
+	if (array('git', 'diff', '--no-renames', '--name-only', $stub_tag_commit, $stub_branch_commit) === $command) {
+		return array('code' => 0, 'stdout' => "src/wp-includes/certificates/ca-bundle.crt\nsrc/wp-includes/example.php\n", 'stderr' => '');
+	}
+	throw new LogicException('Unexpected git command: ' . implode(' ', $command));
+};
+$stub_manifest = array(
+	'targets' => array(
+		'9.9' => array('branch' => 'grouped', 'commit' => $stub_branch_commit, 'base' => 'release-line'),
+	),
+);
+$stub_files = helphub_backport_branch_files('unused', $stub_manifest, '9.9', '9.9.2', $stub_runner);
+check('Previous-tag diff names the previous release tag as its base', '9.9.1', $stub_files['base']);
+check('Previous-tag diff includes a release-branch certificate change', true,
+	in_array('src/wp-includes/certificates/ca-bundle.crt', $stub_files['files'], true));
+check('Previous-tag diff includes the grouped fix', true,
+	in_array('src/wp-includes/example.php', $stub_files['files'], true));
+
+$stub_missing = helphub_backport_branch_files('unused', $stub_manifest, '9.9', '9.9.3', $stub_runner);
+check('Missing tag returns a distinct result', '9.9.2', $stub_missing['missing_tag'] ?? null);
+$stub_fetch = helphub_release_tag_fetch_command('unused', '9.9.2');
+check('Missing tag result gives the exact fetch command', $stub_fetch, $stub_missing['fetch_command'] ?? null);
+$stub_expected = helphub_expected_files(
+	'unused',
+	$stub_manifest + array('fixes' => array(9001 => array('9.9'))),
+	'9.9',
+	'9.9.3',
+	$stub_runner
+);
+check('Expected files preserve a missing tag as unverified', 'missing_tag', $stub_expected['source']);
+check('Expected files preserve the missing-tag fetch command', $stub_fetch, $stub_expected['fetch_command']);
 
 // Exhausted HTTP retries name GET without reading an undefined method variable.
 $http_error = '';

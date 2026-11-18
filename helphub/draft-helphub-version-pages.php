@@ -87,12 +87,19 @@ try {
 	$notes   = array();
 	foreach ($versions as $version) {
 		$line   = helphub_draft_line($version);
-		$branch = helphub_backport_branch_files($checkout, $manifest, $line);
+		$branch = helphub_backport_branch_files($checkout, $manifest, $line, $version);
 		if (null === $branch) {
 			fail(
 				"No backport branch for {$line} in the checkout. The file list must come from what "
 				. 'the branch shipped, so drafting without it would document the wrong files. '
 				. 'Fetch the checkout and try again.',
+				2
+			);
+		}
+		if (isset($branch['missing_tag'])) {
+			fail(
+				"Cannot draft {$version}: previous release tag {$branch['missing_tag']} is not in the checkout. "
+				. "Run this command, then try again: {$branch['fetch_command']}",
 				2
 			);
 		}
