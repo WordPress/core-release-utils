@@ -67,15 +67,6 @@ function remove_worktree(string $repo, string $path): void {
 	}
 }
 
-function package_smoke_remove_worktree_warning(string $repo, string $path, ?callable $remove = null): ?string {
-	try {
-		($remove ?? 'remove_worktree')($repo, $path);
-		return null;
-	} catch (Throwable $error) {
-		return "{$path}: {$error->getMessage()}";
-	}
-}
-
 function release_line(string $release): string {
 	if (!preg_match('/^([0-9]+\.[0-9]+)/', $release, $matches)) {
 		throw new InvalidArgumentException("Release does not contain a numbered release line: {$release}");
@@ -801,11 +792,6 @@ function package_smoke_coverage_counts(array $rows): array {
 	return $counts;
 }
 
-function package_smoke_exit_code(array $rows): int {
-	$counts = package_smoke_coverage_counts($rows);
-	return $counts['env-blocked'] || $counts['failed'] ? 2 : 0;
-}
-
 /**
  * @return array{start:string,cli:string,clean:string}
  */
@@ -1136,21 +1122,6 @@ function package_smoke_write_report(string $path, string $report): void {
 	}
 }
 
-function package_smoke_write_result_report(
-	string $path,
-	string $release,
-	array $rows,
-	string $generated,
-	int $elapsed_seconds,
-	array $cleanup_warnings
-): int {
-	package_smoke_write_report(
-		$path,
-		package_smoke_render_report($release, $rows, $generated, $elapsed_seconds, $cleanup_warnings)
-	);
-	return package_smoke_exit_code($rows);
-}
-
 function package_smoke_functional(
 	string $version,
 	string $worktree,
@@ -1406,9 +1377,11 @@ function package_smoke_package_run(
 		} finally {
 			try {
 				if (null !== $worktree) {
-					$warning = package_smoke_remove_worktree_warning($repo, $worktree);
-					if (null !== $warning) {
-						$cleanup_warnings[] = $warning;
+					try {
+						remove_worktree($repo, $worktree);
+					} catch (Throwable $error) {
+						$cleanup_warnings[] = $error->getMessage();
+						fwrite(STDERR, "Cleanup warning: {$error->getMessage()}\n");
 					}
 				}
 			} finally {
@@ -1549,14 +1522,14 @@ function main(array $argv): int {
 		$result = package_smoke_package_run($repo, $options, $playwright_module, $functional_runner);
 		$generated = (new DateTimeImmutable('now', new DateTimeZone('America/Phoenix')))->format('Y-m-d H:i T');
 		$elapsed_seconds = (int) round((hrtime(true) - $run_started_at) / 1_000_000_000);
-		$exit_code = package_smoke_write_result_report(
-			$options['output'], $result['version'], $result['rows'], $generated, $elapsed_seconds, $result['cleanup_warnings']
-		);
+		package_smoke_write_report($options['output'], package_smoke_render_report(
+			$result['version'], $result['rows'], $generated, $elapsed_seconds, $result['cleanup_warnings']
+		));
 		$counts = package_smoke_coverage_counts($result['rows']);
 		echo "Summary: ran {$counts['ran']} of {$counts['total']} package phases; passed {$counts['passed']}, "
 			. "env-blocked {$counts['env-blocked']}, total failures {$counts['failed']}.\n";
 		echo "Wrote {$options['output']}.\n";
-		return $exit_code;
+		return $counts['env-blocked'] || $counts['failed'] ? 2 : 0;
 	} catch (Throwable $error) {
 		fail($error->getMessage());
 	}

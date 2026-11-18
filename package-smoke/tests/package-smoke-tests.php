@@ -89,25 +89,12 @@ check('Package report has only the columns this tool fills', true, str_contains(
 check('Package report has no fix-smoke section', false, str_contains($package_report, 'Fix'));
 check('Package report lists the failed row', true, str_contains($package_report, '- WordPress 6.8.3 package: upgrade from 6.8.2: Page flow failed.'));
 
-$cleanup_path = '/tmp/package-smoke-unremoved';
-$cleanup_warning = package_smoke_remove_worktree_warning('/tmp/repo', $cleanup_path,
-	static function (): void {
-		throw new RuntimeException('Permission denied.');
-	});
-check('Failed worktree removal becomes a warning', "{$cleanup_path}: Permission denied.", $cleanup_warning);
-$cleanup_report_path = temporary_path('cleanup-report');
-$cleanup_exit = package_smoke_write_result_report(
-	$cleanup_report_path,
-	'6.8.3',
-	array($package_rows[0]),
-	'test run',
-	1,
-	array($cleanup_warning)
-);
-check('Report is written with the cleanup warning', true,
-	is_file($cleanup_report_path) && str_contains((string) file_get_contents($cleanup_report_path), "## Cleanup warnings\n\n- {$cleanup_path}: Permission denied."));
-check('Cleanup warning does not change a passing exit code', 0, $cleanup_exit);
-unlink($cleanup_report_path);
+$cleanup_warning = 'Failed to remove temporary worktree /tmp/package-smoke-unremoved: Permission denied.';
+$report_clean = package_smoke_render_report('6.8.3', array($package_rows[0]), 'test run', 1);
+$report_warned = package_smoke_render_report('6.8.3', array($package_rows[0]), 'test run', 1, array($cleanup_warning));
+check('Report without warnings has no cleanup section', false, str_contains($report_clean, 'Cleanup warnings'));
+check('Report lists cleanup warnings', true, str_contains($report_warned, "## Cleanup warnings\n\n- {$cleanup_warning}\n"));
+check('Cleanup warnings only add their section', $report_clean . "\n## Cleanup warnings\n\n- {$cleanup_warning}\n", $report_warned);
 
 check('Row with a failed check fails', 'failed', package_smoke_status(array('site_up' => 'pass', 'e2e_smoke' => 'fail')));
 check('Blocked row without a failure is env-blocked', 'env-blocked', package_smoke_status(array('site_up' => 'env-blocked', 'e2e_smoke' => 'skip')));
