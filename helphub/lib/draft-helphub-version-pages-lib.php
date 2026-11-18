@@ -565,6 +565,20 @@ function helphub_page_paths(array $paths, array $release_paths = array()): array
 	return $page_paths;
 }
 
+/** Compose the package-section lines exactly as a version page publishes them. */
+function helphub_package_lines(array $packages): array {
+	if (!$packages) {
+		return array('No package was revised.');
+	}
+	ksort($packages);
+	$lines = array();
+	foreach ($packages as $name => $shipped_version) {
+		$lines[] = "{$name} - {$shipped_version}";
+	}
+
+	return $lines;
+}
+
 /**
  * Assemble one version page.
  *
@@ -643,24 +657,19 @@ function helphub_draft_page(
 	$out[] = '';
 	$out[] = helphub_heading('List of packages revised', 3);
 	$out[] = '';
+	$package_lines = helphub_package_lines($packages);
 	if ($packages) {
 		// Preformatted, same as the file list above, and for the same reason:
 		// every published page renders this list in monospace, and the same bare
 		// `<br>` rule applies — a newline here is content inside `<pre>`, and
 		// `<br>\n` would double-space the column.
-		$sorted = $packages;
-		ksort($sorted);
-		$lines = array();
-		foreach ($sorted as $name => $shipped_version) {
-			$lines[] = "{$name} - {$shipped_version}";
-		}
-		$out[] = helphub_preformatted(implode('<br>', $lines));
+		$out[] = helphub_preformatted(implode('<br>', $package_lines));
 	} else {
 		// "No package was revised" is now a derived conclusion, not an assertion:
 		// helphub_revised_packages() found no changed @wordpress/* pin between
 		// this branch and the base it was cut from. The sentence is kept
 		// byte-identical to every published page.
-		$out[] = helphub_paragraph('No package was revised.');
+		$out[] = helphub_paragraph($package_lines[0]);
 	}
 
 	return array(

@@ -8,26 +8,44 @@ require_once __DIR__ . '/lib/checkout-lib.php';
 require_once __DIR__ . '/lib/helphub-manifest-lib.php';
 require_once __DIR__ . '/lib/check-helphub-version-pages-lib.php';
 require_once __DIR__ . '/lib/draft-helphub-version-pages-lib.php';
+require_once __DIR__ . '/lib/preview-helphub-version-pages-lib.php';
+require_once __DIR__ . '/lib/push-helphub-drafts-lib.php';
+require_once __DIR__ . '/lib/helphub-rest-lib.php';
 
 /** Check a release's HelpHub version pages against the release's own artifacts. */
 
 function helphub_usage(string $script): never {
 	fail(
 		"Usage: {$script} --release=<X.Y.Z> --manifest=<helphub-manifest-X.Y.Z.json> --checkout=<path> "
-		. '--pages=<dir> [--check-links] [--verbose] [--help]'
+		. '(--pages=<dir> | --live --site=<url> --user=<login>) [--check-links] [--verbose] [--help]'
 	);
 }
 
-$options = cli_options($argv, array('release:', 'manifest:', 'checkout:', 'pages:', 'check-links', 'verbose', 'help'));
+$options = cli_options($argv, array(
+	'release:', 'manifest:', 'checkout:', 'pages:', 'live', 'site:', 'user:', 'check-links', 'verbose', 'help',
+));
 if (isset($options['help'])) {
 	echo "Usage: {$argv[0]} --release=<X.Y.Z> --manifest=<helphub-manifest-X.Y.Z.json> --checkout=<path> "
-		. "--pages=<dir> [--check-links] [--verbose] [--help]\n";
+		. "(--pages=<dir> | --live --site=<url> --user=<login>) [--check-links] [--verbose] [--help]\n"
+		. "\nLive mode reads the application password from HELPHUB_APP_PASSWORD.\n";
 	exit(0);
 }
 set_verbose(isset($options['verbose']));
-foreach (array('release', 'manifest', 'checkout', 'pages') as $required) {
+foreach (array('release', 'manifest', 'checkout') as $required) {
 	if (!isset($options[$required]) || !is_string($options[$required]) || '' === $options[$required]) {
 		helphub_usage($argv[0]);
+	}
+}
+$live = isset($options['live']);
+$has_pages = isset($options['pages']) && is_string($options['pages']) && '' !== $options['pages'];
+if ($live === $has_pages) {
+	fail('Choose exactly one of --pages or --live.', 2);
+}
+if ($live) {
+	foreach (array('site', 'user') as $required) {
+		if (!isset($options[$required]) || !is_string($options[$required]) || '' === $options[$required]) {
+			fail("--live needs --{$required}.", 2);
+		}
 	}
 }
 
@@ -46,18 +64,34 @@ try {
 			2
 		);
 	}
-	$pages = helphub_load_pages($options['pages']);
+	$source_unverified = array();
+	$present_versions  = array();
+	if ($live) {
+		helphub_load_auth($options['user']);
+		$site = helphub_require_https($options['site']);
+		$targets = helphub_live_target_versions($manifest, $checkout);
+		$source_unverified = $targets['unverified'];
+		$live_pages = helphub_load_live_pages($site, $targets['versions']);
+		$pages = $live_pages['pages'];
+		$present_versions = $live_pages['found'];
+		$source_unverified = array_merge($source_unverified, $live_pages['unverified']);
+	} else {
+		$pages = helphub_load_pages($options['pages']);
+		$present_versions = array_keys($pages);
+	}
 	verbose_log(sprintf('Loaded %d page(s) for release %s', count($pages), $manifest['release']));
 
 	$texts         = array();
 	$credits       = array();
 	$pages_by_line = array();
-	$unverified    = array();
+	$unverified    = $source_unverified;
 	$provenance    = array();
+	foreach ($present_versions as $version) {
+		$pages_by_line[helphub_version_line($version)][] = $version;
+	}
 	foreach ($pages as $version => $body) {
 		$text                          = helphub_page_to_text($body);
 		$texts[$version]               = $text;
-		$pages_by_line[helphub_version_line($version)][] = $version;
 
 		$bullets = helphub_credit_bullets($text);
 		if (null === $bullets) {
@@ -127,27 +161,41 @@ try {
 		foreach (helphub_source_path_findings($texts[$version], $release_paths, $version) as $finding) {
 			$findings[] = $finding;
 		}
-		$listed = helphub_revised_files($texts[$version], $release_paths);
-		if (null === $listed) {
+		$listed_files = helphub_revised_files($texts[$version], $release_paths);
+		if (null === $listed_files) {
 			$unverified[] = "Page {$version} has no \"" . HELPHUB_FILES_HEADING
 				. '" section, so its file list was not checked.';
-			continue;
-		}
+		} else {
+			if (null !== $expected['problem']) {
+				$findings[] = sprintf(
+					'Page %s cannot be checked against its branch: %s',
+					$version,
+					$expected['problem']
+				);
+			}
 
-		// An empty branch is a finding, not missing evidence.
-		if (null !== $expected['problem']) {
-			$findings[] = sprintf(
-				'Page %s cannot be checked against its branch: %s',
-				$version,
-				$expected['problem']
+			$findings = array_merge(
+				$findings,
+				helphub_check_file_list($version, $listed_files, $expected['files'])
 			);
 		}
 
 		$provenance[$version] = $expected['read_from'];
-		$findings = array_merge(
-			$findings,
-			helphub_check_file_list($version, $listed, $expected['files'])
-		);
+		$listed_packages = helphub_revised_package_lines($texts[$version]);
+		if (null === $listed_packages) {
+			$package_check = helphub_check_package_section($version, null);
+			$unverified = array_merge($unverified, $package_check['unverified']);
+			continue;
+		}
+		try {
+			$packages = helphub_revised_packages($checkout, $expected['ref'], "refs/tags/{$expected['base']}");
+		} catch (RuntimeException $exception) {
+			$unverified[] = "Page {$version} package list could not be checked: {$exception->getMessage()}";
+			continue;
+		}
+		$package_check = helphub_check_package_section($version, $listed_packages, helphub_package_lines($packages));
+		$findings = array_merge($findings, $package_check['findings']);
+		$unverified = array_merge($unverified, $package_check['unverified']);
 	}
 
 	echo "HelpHub version pages for WordPress {$manifest['release']}\n";
@@ -156,7 +204,7 @@ try {
 
 	// Report the branch and commit used for each comparison.
 	if ($provenance) {
-		echo "\nFile lists compared against:\n";
+		echo "\nFile and package lists compared against:\n";
 		foreach ($provenance as $version => $read_from) {
 			echo "  {$version}: {$read_from}\n";
 		}

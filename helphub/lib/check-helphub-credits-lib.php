@@ -21,10 +21,10 @@ require_once __DIR__ . '/draft-helphub-version-pages-lib.php';
  */
 function helphub_credits_normalize_line(string $line): string {
 	$text = strip_tags($line);
-	$text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+	$text = helphub_normalize_quotes_for_comparison($text);
 	$text = str_replace(
-		array("\u{2018}", "\u{2019}", "\u{201C}", "\u{201D}", "\u{2013}", "\u{2014}", "\xc2\xa0"),
-		array("'", "'", '"', '"', '-', '-', ' '),
+		array("\u{2013}", "\u{2014}", "\xc2\xa0"),
+		array('-', '-', ' '),
 		$text
 	);
 	$text = preg_replace('/\s+/', ' ', $text) ?? $text;

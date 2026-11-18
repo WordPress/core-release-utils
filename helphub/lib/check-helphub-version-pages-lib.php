@@ -56,6 +56,17 @@ function helphub_page_to_text(string $body): string {
 	return implode("\n", $lines);
 }
 
+/** Normalize typographic quotes only while two lines are being compared. */
+function helphub_normalize_quotes_for_comparison(string $text): string {
+	$text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+	return str_replace(
+		array("\u{2018}", "\u{2019}", "\u{201C}", "\u{201D}"),
+		array("'", "'", '"', '"'),
+		$text
+	);
+}
+
 /**
  * Return the lines of one section, identified by its heading text.
  *
@@ -165,6 +176,19 @@ function helphub_revised_files(string $text, array $release_paths = array()): ?a
 	return $files;
 }
 
+/** The lines a page carries in its revised-package section. */
+function helphub_revised_package_lines(string $text): ?array {
+	$lines = helphub_section_lines($text, HELPHUB_PACKAGES_HEADING);
+	if (null === $lines) {
+		return null;
+	}
+
+	return array_values(array_filter(array_map(
+		static fn(string $line): string => trim(str_replace(array("\x01", "\x02"), '', $line)),
+		$lines
+	), static fn(string $line): bool => '' !== $line));
+}
+
 /**
  * Read the page bodies for a wave, keyed by the version each one documents.
  *
@@ -213,6 +237,27 @@ function helphub_load_pages(string $directory): array {
 	}
 
 	return $pages;
+}
+
+/** Resolve the exact page version for each manifest target from the checkout. */
+function helphub_live_target_versions(array $manifest, string $checkout, ?callable $resolver = null): array {
+	$resolver ??= 'helphub_branch_version';
+	$versions   = array();
+	$unverified = array();
+	foreach (array_keys($manifest['targets']) as $target) {
+		if ($target === helphub_version_line($manifest['release'])) {
+			$versions[] = $manifest['release'];
+			continue;
+		}
+		$branch_version = $resolver($checkout, $target);
+		if (null === $branch_version) {
+			$unverified[] = "Branch {$target} is not in the checkout, so its live page version could not be determined.";
+			continue;
+		}
+		$versions[] = $branch_version['next'];
+	}
+
+	return array('versions' => helphub_sort_versions($versions), 'unverified' => $unverified);
 }
 
 /**
@@ -426,6 +471,8 @@ function helphub_http_status(string $url): int {
  * distance computed from truncated input.
  */
 function helphub_is_near_duplicate(string $a, string $b): bool {
+	$a = helphub_normalize_quotes_for_comparison($a);
+	$b = helphub_normalize_quotes_for_comparison($b);
 	if ($a === $b) {
 		return false;
 	}
@@ -452,7 +499,9 @@ function helphub_check_credit_consistency(array $credits): array {
 	$occurrences = array();
 	foreach ($credits as $version => $bullets) {
 		foreach ($bullets as $bullet) {
-			$occurrences[$bullet][] = $version;
+			$comparison = helphub_normalize_quotes_for_comparison($bullet);
+			$occurrences[$comparison]['line'] ??= $bullet;
+			$occurrences[$comparison]['versions'][] = $version;
 		}
 	}
 
@@ -468,10 +517,10 @@ function helphub_check_credit_consistency(array $credits): array {
 				"Credit lines differ between pages that should carry the same text.\n"
 				. "    %s: %s\n"
 				. '    %s: %s',
-				implode(', ', $occurrences[$bullets[$i]]),
-				$bullets[$i],
-				implode(', ', $occurrences[$bullets[$j]]),
-				$bullets[$j]
+				implode(', ', $occurrences[$bullets[$i]]['versions']),
+				$occurrences[$bullets[$i]]['line'],
+				implode(', ', $occurrences[$bullets[$j]]['versions']),
+				$occurrences[$bullets[$j]]['line']
 			);
 		}
 	}
@@ -945,6 +994,7 @@ function helphub_expected_files(
 			'unpinned'  => array(),
 			'source'    => 'branch',
 			'ref'       => $branch['branch'],
+			'base'      => $branch['base'],
 			'read_from' => "{$branch['branch']} at {$branch['commit']}",
 			'problem'   => helphub_unusable_file_list($branch),
 		);
@@ -967,6 +1017,7 @@ function helphub_expected_files(
 		'unpinned'  => $unpinned,
 		'source'    => 'references',
 		'ref'       => null,
+		'base'      => null,
 		'read_from' => 'pinned fix references',
 		'problem'   => null,
 	);
@@ -1000,4 +1051,37 @@ function helphub_check_file_list(string $version, array $listed, array $expected
 	}
 
 	return $findings;
+}
+
+/** Check 4: a page's revised-package section matches the branch package pins. */
+function helphub_check_package_list(string $version, array $found, array $expected): array {
+	$normalize = static fn(array $lines): array => array_map('helphub_normalize_quotes_for_comparison', $lines);
+	if ($normalize($found) === $normalize($expected)) {
+		return array();
+	}
+
+	return array(sprintf(
+		"Page %s package section differs:\n    Expected: %s\n    Found: %s",
+		$version,
+		$expected ? implode("\n              ", $expected) : '(empty)',
+		$found ? implode("\n           ", $found) : '(empty)'
+	));
+}
+
+/** Classify a missing package section as unverified, not as an empty list. */
+function helphub_check_package_section(string $version, ?array $found, array $expected = array()): array {
+	if (null === $found) {
+		return array(
+			'findings'   => array(),
+			'unverified' => array(
+				"Page {$version} has no \"" . HELPHUB_PACKAGES_HEADING
+					. '" section, so its package list was not checked.',
+			),
+		);
+	}
+
+	return array(
+		'findings'   => helphub_check_package_list($version, $found, $expected),
+		'unverified' => array(),
+	);
 }
