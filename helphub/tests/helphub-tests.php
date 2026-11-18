@@ -641,6 +641,15 @@ foreach ($note_cases as $label => [$body, $notes, $expected_code, $expected_outp
 		check("News notes: {$label}: {$expected}", true, str_contains($note_output, $expected));
 	}
 }
+ob_start();
+try {
+	$scoped_news_code = helphub_credits_check_news($note_manifest, "Security updates\n- Example issue reported by Ann Example.\n- {$note_text}",
+		helphub_draft_note_texts(array("6.9.5:{$note_text}", "6.8.6:{$note_text}")));
+} finally {
+	$scoped_news_output = ob_get_clean();
+}
+check('News notes: scoped copies of one note expect it once', 0, $scoped_news_code);
+check('News notes: a prefixed note is recognized', true, str_contains($scoped_news_output, "Post bullet 2: NOTE ({$note_text})"));
 $note_options = array('release' => '99.8.7', 'manifest' => 'example-manifest.json', 'note' => $note_text);
 check('Page-mode notes need no news-post', null, helphub_credits_news_option_error($note_options));
 check('Page-mode notes refuse a reporter credit', 1,
@@ -865,12 +874,12 @@ check('Empty issues map preserves original page', $legacy_page, helphub_draft_pa
 $draft_note = 'An update to the example widget library.';
 $draft_notes_options = parse_cli_options(array('draft', '--note=' . $draft_note, '--note=An example package update.'), array('note:'));
 check('Repeated notes preserve argument order', array($draft_note, 'An example package update.'), $draft_notes_options['note']);
-check('Single note becomes one item', array($draft_note), helphub_draft_notes((array) parse_cli_options(
-	array('draft', '--note=' . $draft_note), array('note:'))['note']));
-check('Draft notes trim surrounding whitespace', array($draft_note), helphub_draft_notes(array("  {$draft_note}\n")));
+check('Single note becomes one item', array($draft_note), array_column(helphub_draft_note_specs((array) parse_cli_options(
+	array('draft', '--note=' . $draft_note), array('note:'))['note']), 'text'));
+check('Draft notes trim surrounding whitespace', array($draft_note), array_column(helphub_draft_note_specs(array("  {$draft_note}\n")), 'text'));
 foreach (array(array(''), array(" \t\n"), array($draft_note, $draft_note), array($draft_note, " {$draft_note} ")) as $invalid_notes) {
 	check_throws('Draft refuses empty or duplicate notes: ' . json_encode($invalid_notes), InvalidArgumentException::class,
-		static fn() => helphub_draft_notes($invalid_notes));
+		static fn() => helphub_draft_note_specs($invalid_notes));
 }
 $draft_note_sets = array(
 	array(),
@@ -899,6 +908,66 @@ foreach ($issue_versions as $version) {
 		check("Draft {$version} note set {$index} preserves missing credits", $baseline['missing_credits'], $with_notes['missing_credits']);
 	}
 }
+// Scoped notes: a version prefix limits a note to those pages.
+$scoped_text = 'An update to the example widget library.';
+check('Unprefixed note has no versions', array('text' => $scoped_text, 'versions' => null), helphub_draft_note_split($scoped_text));
+check('Prefixed note parses its versions', array('text' => $scoped_text, 'versions' => array('7.0.9', '6.9')),
+	helphub_draft_note_split("7.0.9, 6.9:{$scoped_text}"));
+check('Colon inside plain text is not a prefix', array('text' => 'Note: an example update.', 'versions' => null), helphub_draft_note_split('Note: an example update.'));
+check('Non-version list before colon is plain text', array('text' => '7.0.9,abc: text', 'versions' => null), helphub_draft_note_split('7.0.9,abc: text'));
+check('Colon after the prefix stays in the text', array('text' => 'Note: text', 'versions' => array('7.0.9')), helphub_draft_note_split('7.0.9:Note: text'));
+check('Specs carry text and versions', array(array('text' => $scoped_text, 'versions' => array('7.0.9')), array('text' => 'Other.', 'versions' => null)),
+	helphub_draft_note_specs(array("7.0.9:{$scoped_text}", 'Other.')));
+check('Spec text drops the prefix', array($scoped_text), array_column(helphub_draft_note_specs(array("7.0.9:{$scoped_text}")), 'text'));
+check_throws('Scoped note with unknown version is refused', InvalidArgumentException::class,
+	static fn() => helphub_draft_note_versions_check(helphub_draft_note_specs(array("7.0.8:{$scoped_text}")), array('7.1.9', '7.0.9')));
+foreach (array('v7.0.9:X', '7.0.9 6.9.8:X', '7.0.9;6.9.8:X', '7.0.9,:X') as $typo_note) {
+	check_throws("Mistyped prefix is refused: {$typo_note}", InvalidArgumentException::class, static fn() => helphub_draft_note_specs(array($typo_note)));
+}
+check('Prose before a colon stays plain text', array('text' => 'Step 1: X', 'versions' => null), helphub_draft_note_split('Step 1: X'));
+check('Colon text in a scoped note drafts and checks the same', array('8.4: PHP note'),
+	helphub_draft_notes_for_version(helphub_draft_note_specs(array('7.0.9:8.4: PHP note')), '7.0.9'));
+$colon_page = helphub_draft_page('7.0.9', '2000-01-01', array('src/example.php'), $fixes, $credits, array('7.0.9'), array('7.0'), array(), array(), array(), null,
+	helphub_draft_notes_for_version(helphub_draft_note_specs(array('7.0.9:8.4: PHP note')), '7.0.9'));
+check('Scoped note with a colon is drafted whole', true, str_contains($colon_page['body'], '<li>8.4: PHP note</li>'));
+check_throws('Overlapping scoped duplicates are refused', InvalidArgumentException::class,
+	static fn() => helphub_draft_note_specs(array('7.0.9,6.9.8:X', '6.9.8:X')));
+check('Disjoint scoped duplicates are allowed', 2, count(helphub_draft_note_specs(array('7.0.9:X', '6.9.8:X'))));
+check_throws('Scoped plus unscoped duplicates are refused', InvalidArgumentException::class,
+	static fn() => helphub_draft_note_specs(array('7.0.9:X', 'X')));
+check_throws('Check refuses a scoped version on a non-target line', InvalidArgumentException::class,
+	static fn() => helphub_credits_note_versions_check(helphub_draft_note_specs(array('6.9.8:X')), array('7.1', '7.0'), array()));
+check_throws('Check refuses a scoped version its line resolved differently', InvalidArgumentException::class,
+	static fn() => helphub_credits_note_versions_check(helphub_draft_note_specs(array('7.0.8:X')), array('7.0'), array('7.0' => '7.0.9')));
+check('Check lets an unreached target line fall through', null,
+	helphub_credits_note_versions_check(helphub_draft_note_specs(array('7.0.9:X')), array('7.0'), array()));
+check_throws('News-mode notes refuse an exact duplicate', InvalidArgumentException::class, static fn() => helphub_draft_note_texts(array('X', 'X')));
+check('News-mode notes merge scoped copies', array('X'), helphub_draft_note_texts(array('7.0.9:X', '6.9.8:X')));
+check('Reporter note stays refused when scoped', 1, helphub_credits_news_option_error(
+	array('release' => '99.8.7', 'manifest' => 'example-manifest.json', 'note' => array(helphub_draft_note_split('7.0.9:Foo reported by Bar')['text'])))['code']);
+check_throws('Scoped note with empty text is refused', InvalidArgumentException::class,
+	static fn() => helphub_draft_note_specs(array('7.0.9:  ')));
+$scope_versions = array('7.1.9', '7.0.9');
+$scope_specs    = helphub_draft_note_specs(array("7.0.9:{$scoped_text}"));
+$scope_pages    = array();
+foreach ($scope_versions as $version) {
+	$scope_pages[$version] = helphub_draft_page($version, '2000-01-01', array('src/example.php'), $fixes, $credits,
+		$scope_versions, array('7.1', '7.0'), array(), array(), array(), null, helphub_draft_notes_for_version($scope_specs, $version));
+}
+check('Scoped note appears on the listed page', true, str_contains($scope_pages['7.0.9']['body'], "<li>{$scoped_text}</li>"));
+check('Scoped note is absent from the other page', false, str_contains($scope_pages['7.1.9']['body'], $scoped_text));
+$scope_live = array();
+foreach ($scope_pages as $version => $page) {
+	$scope_live[$version] = array_map('helphub_credits_normalize_line', helphub_credit_bullets(helphub_page_to_text($page['body'])));
+}
+$scope_expect = static fn(string $line, string $version): array => helphub_credits_expected_lines($fixes, $credits, $line, array(), null, helphub_draft_notes_for_version($scope_specs, $version))['lines'];
+check('Check expects a scoped note on the listed page', array('missing' => array(), 'unexpected' => array()),
+	helphub_credits_compare($scope_expect('7.0', '7.0.9'), $scope_live['7.0.9']));
+check('Check expects no scoped note on the other page', array('missing' => array(), 'unexpected' => array()),
+	helphub_credits_compare($scope_expect('7.1', '7.1.9'), $scope_live['7.1.9']));
+check('Check flags a listed page that lacks the scoped note', array('missing' => array($scoped_text), 'unexpected' => array()),
+	helphub_credits_compare($scope_expect('7.0', '7.0.9'), array_values(array_diff($scope_live['7.0.9'], array(helphub_credits_normalize_line($scoped_text))))));
+
 check('Notes leave announced vulnerability count unchanged', null, helphub_security_issues_check($issue_entries, '4'));
 
 check('Absent issues still counts fixes', 3, helphub_fix_count($issue_fixes));

@@ -70,7 +70,7 @@ function helphub_credits_reaching_fixes(array $fixes, string $line, array $issue
  *
  * @param array<int,string[]> $fixes
  * @param array<int,string>   $credits
- * @param string[]            $notes   Non-fix bullets, as given to the draft generator.
+ * @param string[]            $notes   Non-fix bullets for this page, as given to the draft generator.
  * @return array{lines:string[],fill_ins:int[]}
  */
 function helphub_credits_expected_lines(array $fixes, array $credits, string $line, array $issues = array(), ?array $entries = null, array $notes = array()): array {
@@ -235,9 +235,24 @@ function helphub_credits_wave_stray(array $pages, array $wave, string $line, ?st
 	return null;
 }
 
+/** Refuse a scoped note whose version is not on a manifest target line, or is not the version that line resolved to. */
+function helphub_credits_note_versions_check(array $specs, array $targets, array $version_by_line): void {
+	foreach ($specs as $spec) {
+		foreach ($spec['versions'] ?? array() as $version) {
+			$line = helphub_version_line($version);
+			if (!in_array($line, $targets, true)) {
+				throw new InvalidArgumentException("--note names version {$version}, but branch {$line} is not a target of this release.");
+			}
+			if (isset($version_by_line[$line]) && $version_by_line[$line] !== $version) {
+				throw new InvalidArgumentException("--note names version {$version}, but branch {$line} resolved to {$version_by_line[$line]} in this release wave.");
+			}
+		}
+	}
+}
+
 function helphub_credits_news_option_error(array $options, ?array $manifest = null): ?array {
 	foreach ((array) ($options['note'] ?? array()) as $note) {
-		if (null !== helphub_credits_reporter(' ' . helphub_credits_normalize_line((string) $note))) {
+		if (null !== helphub_credits_reporter(' ' . helphub_credits_normalize_line($note))) {
 			return array('message' => "--note names a reporter, so it is a fix credit, not a note: {$note}", 'code' => 1);
 		}
 	}
