@@ -272,11 +272,13 @@ php helphub/draft-helphub-published-reply.php --pages=/path/to/drafts --title='P
 ```
 
 Once pages are live, this prints the Slack reply that says so: one line, each
-version linked to its page, newest first. It reads the public REST API with no
-credential, in one request, and drafts the reply only when every version has
-exactly one published page at its expected address. Otherwise it prints nothing
-to standard output, names each page that is not live on standard error, and
-exits 2. It never posts anywhere.
+version linked to its page, newest first. With no credential, it asks the
+public REST API for the versions' published pages, then fetches each page the
+way a reader would, refusing redirects. It drafts the reply only when every
+version has exactly one published page at its expected address that returns
+200. Otherwise it prints nothing to standard output, names each page that is
+not live on standard error, and exits 2; run it again in a minute. Bad input
+also exits 2, and a failed lookup exits 1. It never posts anywhere.
 
 ## Checking live credits
 
