@@ -264,6 +264,20 @@ JSON), or the read-back fails. To confirm by hand, dry-run the reverse edit (swa
 `--with`): it should match once, while the forward edit should now find no
 anchor.
 
+## Drafting the published reply
+
+```sh
+php helphub/draft-helphub-published-reply.php --versions=7.0.3,6.9.4
+php helphub/draft-helphub-published-reply.php --pages=/path/to/drafts --title='Phase 2 HelpHub pages are published'
+```
+
+Once pages are live, this prints the Slack reply that says so: one line, each
+version linked to its page, newest first. It reads the public REST API with no
+credential, in one request, and drafts the reply only when every version has
+exactly one published page at its expected address. Otherwise it prints nothing
+to standard output, names each page that is not live on standard error, and
+exits 2. It never posts anywhere.
+
 ## Checking live credits
 
 Drafting and checking pages happens before a release ships. Once it does, a

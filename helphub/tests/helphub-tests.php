@@ -1141,6 +1141,32 @@ check('--only picks one listed version', array('7.0.9'), helphub_published_plan(
 check_throws('--only outside --published refuses', RuntimeException::class,
 	static fn(): array => helphub_published_plan(array('7.1.5', '7.0.9'), '6.9.12', 'new'));
 
+// The published-pages reply drafts only when every version is live at its own address.
+check('Reply versions are newest first, once each', array('7.1.5', '6.9.12', '6.6.12'),
+	helphub_reply_versions('6.6.12, 7.1.5,6.9.12,7.1.5'));
+check_throws('Reply versions refuse a non-version', InvalidArgumentException::class,
+	static fn(): array => helphub_reply_versions('7.1.5,latest'));
+$reply_post = static fn(string $version, string $status = 'publish', ?string $link = null): array => array(
+	'id' => 1, 'slug' => helphub_version_slug($version), 'status' => $status, 'link' => $link ?? helphub_version_url($version),
+);
+check('Every version live means no problems', array(),
+	helphub_reply_problems(array('7.1.5', '7.0.9'), array($reply_post('7.1.5'), $reply_post('7.0.9'), $reply_post('6.9.12'))));
+check('A version with no public page is named',
+	array('6.5.15: not published (no public page at https://wordpress.org/documentation/wordpress-version/version-6-5-15/)'),
+	helphub_reply_problems(array('7.1.5', '6.5.15'), array($reply_post('7.1.5'))));
+check('Two pages at one slug are a problem', array('7.1.5: 2 published pages share its slug'),
+	helphub_reply_problems(array('7.1.5'), array($reply_post('7.1.5'), $reply_post('7.1.5'))));
+check('A non-published status is a problem', array('7.1.5: status is draft, not publish'),
+	helphub_reply_problems(array('7.1.5'), array($reply_post('7.1.5', 'draft'))));
+check('A page at another address is a problem',
+	array('7.1.5: published at https://wordpress.org/documentation/wordpress-version/version-7-1-5-2/, not https://wordpress.org/documentation/wordpress-version/version-7-1-5/'),
+	helphub_reply_problems(array('7.1.5'), array($reply_post('7.1.5', 'publish', 'https://wordpress.org/documentation/wordpress-version/version-7-1-5-2/'))));
+check('The reply links each version on one line',
+	':white_check_mark: HelpHub pages are published: [7.1.5](https://wordpress.org/documentation/wordpress-version/version-7-1-5/), [7.0.9](https://wordpress.org/documentation/wordpress-version/version-7-0-9/)',
+	helphub_reply_body(array('7.1.5', '7.0.9'), HELPHUB_REPLY_TITLE));
+check('A custom title keeps one colon', ':white_check_mark: Phase 2 HelpHub pages are published: [6.5.15](https://wordpress.org/documentation/wordpress-version/version-6-5-15/)',
+	helphub_reply_body(array('6.5.15'), 'Phase 2 HelpHub pages are published:'));
+
 if ($failures) {
 	foreach ($failures as $failure) {
 		fwrite(STDERR, "FAIL: {$failure}\n");
