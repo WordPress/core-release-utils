@@ -9,6 +9,9 @@ This repo holds core WordPress release tooling that is not tied to a security em
 ## Tools
 
 - `helphub/`: drafts and checks HelpHub release pages, credits, and versions index rows using a release manifest and checkout.
+  - Version-page check: `php helphub/check-helphub-version-pages.php --release=<X.Y.Z> --manifest=<file> --checkout=<path> (--pages=<dir> | --live --site=<url> --user=<login>)`.
+  - `--live` reads raw version-page bodies in any status without writing.
+  - The check verifies each page's package section against its release branch.
 - `wp-profile-link-generator/`: takes a list of WordPress.org usernames and produces the linked contributor list for a minor release post, plus the updated credits array for the credits API.
 - `verify-tags-reached-mirror/`: checks that release tags on `core.svn` reached the `WordPress/WordPress` Git mirror. `--tags` polls for a release's tags as a gate; `--audit` checks every tag once.
 - `verify-localized-packages/`: checks that the core language pack and the localized zip exist for each locale after a release. Polls as a gate, and names the missing locales to report in #meta-i18n.

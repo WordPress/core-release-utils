@@ -366,6 +366,20 @@ php helphub/check-helphub-version-pages.php \
   --pages=/path/to/pages
 ```
 
+Or read the current HelpHub bodies:
+
+```sh
+php helphub/check-helphub-version-pages.php \
+  --release=7.0.3 \
+  --manifest=/path/to/helphub-manifest-7.0.3.json \
+  --checkout=/path/to/wordpress-develop-security \
+  --live --site=https://wordpress.org/documentation --user=<login>
+```
+
+- `--live` reads each target page's raw body in any status using `HELPHUB_APP_PASSWORD`; it sends GET requests only, through `helphub_get()`, with its own user agent. A rejected credential (HTTP 401 or 403) exits 2.
+- A target branch's page version is its next patch. Once `refs/tags/<release>` exists in the checkout, the release has landed and it is the branch's current version instead.
+- The package check compares the published package section with the branch's changed `@wordpress/*` pins.
+
 `--pages` is a directory of page bodies, one file per version, named for the
 version it documents: `7.0.3.txt`, `6.9.6.txt`. Either shape works. Paste a
 draft out of the HelpHub editor, or save the published body:
@@ -416,8 +430,12 @@ failure, `2` needs human attention.
 
    The tools never fetch the tag themselves.
 
-4. **Repeated words, known misspellings, and copied-forward facts.** Checks 1
-   to 3 compare pages against each other or against the release, so all three
+4. **Each package section matches what that release shipped.** The tool compares
+   changed production `@wordpress/*` pins using the same branch and base as the
+   draft generator, including a verified "No package was revised." result.
+
+5. **Repeated words, known misspellings, and copied-forward facts.** Checks 1
+   to 4 compare pages against each other or against the release, so all four
    are blind to a mistake copied identically everywhere. "overridding" reached all 23 March
    2026 pages and is still published; "this is is not" is live on 6.9.3. This is
    the only check that sees a consistent error.
@@ -427,22 +445,22 @@ failure, `2` needs human attention.
    lines. A page copied from the previous release keeps both: on 7.1.3, 24 pages
    said "one security fix" and two named the version before.
 
-5. **Links resolve.** Opt-in with `--check-links`, because everything else here
+6. **Links resolve.** Opt-in with `--check-links`, because everything else here
    is offline and deterministic, and release day is the wrong time to find out a
    checker needs the network. A link that cannot be reached at all is reported
    as unresolved, not broken: a network problem is not evidence a link is dead.
 
 ### What it does not check
 
-Check 4 is a curated list, not a spellchecker. A dictionary would flag every
+Check 5 is a curated list, not a spellchecker. A dictionary would flag every
 function name, path, and researcher's name in this prose, and this repository
 takes no external dependencies. Anything that gets through belongs on the list
 in `check-helphub-version-pages-lib.php` afterwards.
 
-It reads pages from a directory rather than fetching them, because the pages
-are drafts when they most need checking, and a draft is not public.
+Use `--pages` for saved bodies or authenticated `--live` reads for current
+draft, pending, private, future, and published bodies.
 
-Nothing here writes to wordpress.org. There is no code path that could.
+Nothing here writes to wordpress.org. `--live` loads the shared REST library, but the check calls only its GET wrapper, `helphub_get()`, which fixes the method to GET.
 
 A generated page cannot carry a copy-propagated defect at all, which is a better
 answer than detecting one. Prefer drafting over checking where you can.
