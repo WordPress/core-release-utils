@@ -277,8 +277,10 @@ public REST API for the versions' published pages, then fetches each page the
 way a reader would, refusing redirects. It drafts the reply only when every
 version has exactly one published page at its expected address that returns
 200. Otherwise it prints nothing to standard output, names each page that is
-not live on standard error, and exits 2; run it again in a minute. Bad input
-also exits 2, and a failed lookup exits 1. It never posts anywhere.
+not live on standard error, and exits 2; run it again in a minute. It stops
+at the first page that does not answer. A bad version, title or pages directory
+also exits 2, as do more than 50 versions; an unknown option or a failed lookup
+exits 1. It never posts anywhere.
 
 ## Checking live credits
 

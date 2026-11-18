@@ -1159,9 +1159,9 @@ check('A page at another address is a problem',
 check('A published page a reader still gets a 404 for is a problem',
 	array('7.1.5: https://wordpress.org/documentation/wordpress-version/version-7-1-5/ returned HTTP 404 to a reader'),
 	helphub_reply_problems(array('7.1.5'), array($reply_post('7.1.5')), static fn(string $url): int => 404));
-check('A redirect or no response is a problem',
-	array('7.1.5: https://wordpress.org/documentation/wordpress-version/version-7-1-5/ could not be read (redirect or no response)'),
-	helphub_reply_problems(array('7.1.5'), array($reply_post('7.1.5')), static fn(string $url): int => 0));
+check('A redirect or no response stops the check at that page',
+	array('7.1.5: https://wordpress.org/documentation/wordpress-version/version-7-1-5/ could not be read (redirect or no response); stopped checking the rest'),
+	helphub_reply_problems(array('7.1.5', '7.0.9'), array($reply_post('7.1.5'), $reply_post('7.0.9')), static fn(string $url): int => 0));
 $reply_reads = array();
 helphub_reply_problems(array('7.1.5', '6.5.15'), array($reply_post('7.1.5')), static function (string $url) use (&$reply_reads): int {
 	$reply_reads[] = $url;

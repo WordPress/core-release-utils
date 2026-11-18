@@ -33,10 +33,12 @@ function helphub_reply_problems(array $versions, array $posts, callable $public_
 			continue;
 		}
 		$status = $public_status($url);
+		if (0 === $status) {
+			$problems[] = "{$version}: {$url} could not be read (redirect or no response); stopped checking the rest";
+			break;
+		}
 		if (200 !== $status) {
-			$problems[] = 0 === $status
-				? "{$version}: {$url} could not be read (redirect or no response)"
-				: "{$version}: {$url} returned HTTP {$status} to a reader";
+			$problems[] = "{$version}: {$url} returned HTTP {$status} to a reader";
 		}
 	}
 
