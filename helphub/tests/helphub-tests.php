@@ -1100,6 +1100,47 @@ check('A numeral count is read', 1, count(helphub_prose_defects('7.1.3', $copied
 check('"Several" claims no count', array(), helphub_prose_defects('7.1.3', $copied_page('7.1.3', 'several security fixes', 7)));
 check('A four-part version matches itself', array(), helphub_prose_defects('4.2.26.2', $copied_page('4.2.26.2', 'one security fix', 1)));
 
+// Published-page edits touch only named live pages and never send a status.
+check('--published lists versions newest first, once each',
+	array('7.1.5', '6.9.12', '6.6.12'),
+	helphub_published_versions('6.6.12, 7.1.5,6.9.12,7.1.5'));
+check_throws('--published refuses a non-version', InvalidArgumentException::class,
+	static fn(): array => helphub_published_versions('7.1.5,latest'));
+check_throws('--published refuses an empty entry', InvalidArgumentException::class,
+	static fn(): array => helphub_published_versions('7.1.5,'));
+$live = array('id' => 5, 'slug' => 'version-7-1-5', 'status' => 'publish', 'content' => array('raw' => 'x'));
+check('A single live page at the slug may be edited', null, helphub_published_refusal('7.1.5', array($live)));
+check('A missing page is refused', '7.1.5 has no page. Nothing was changed.', helphub_published_refusal('7.1.5', array()));
+check('A draft is refused in published mode',
+	'7.1.5 is draft, not published. Left alone; edit a draft without --published.',
+	helphub_published_refusal('7.1.5', array(array('status' => 'draft') + $live)));
+check('A page with no status is refused', true,
+	str_contains((string) helphub_published_refusal('7.1.5', array(array('id' => 5, 'slug' => 'version-7-1-5'))), 'unknown, not published'));
+check('Two pages at one slug are refused', '7.1.5 matched 2 pages. Nothing was changed.',
+	helphub_published_refusal('7.1.5', array($live, $live)));
+check('A page at another slug is refused', true,
+	null !== helphub_published_refusal('7.0.9', array($live)));
+check('A published edit sends content only', array('content' => 'body'), helphub_content_payload('body'));
+check_throws('A published edit refuses an empty body', InvalidArgumentException::class,
+	static fn(): array => helphub_content_payload(" \n"));
+check('The dry run lists only the paths a replacement adds',
+	"    + /wp-includes/blocks/comment-date.php\n    (27 bytes become 67)",
+	helphub_describe_replacement('<pre>/a.php<br>/b.php</pre>', '<pre>/a.php<br>/wp-includes/blocks/comment-date.php<br>/b.php</pre>'));
+check('The dry run shows removed and added lines',
+	"    - <p>No package was revised.</p>\n    + <pre>@wordpress/editor - 14.0.9</pre>\n    (44 bytes become 51)",
+	helphub_describe_replacement("<!-- wp:p -->\n<p>No package was revised.</p>", "<!-- wp:p -->\n<pre>@wordpress/editor - 14.0.9</pre>"));
+check('An identical replacement shows only its size', '    (4 bytes become 4)', helphub_describe_replacement('same', 'same'));
+check('A change the line diff hides shows both texts', "    - a<br>a\n    + a\n    (6 bytes become 1)",
+	helphub_describe_replacement('a<br>a', 'a'));
+check_throws('--published refuses an empty --with', InvalidArgumentException::class,
+	static fn(): array => helphub_published_plan(array('7.1.5'), null, " \n"));
+check_throws('--published with several versions needs --only', InvalidArgumentException::class,
+	static fn(): array => helphub_published_plan(array('7.1.5', '7.0.9'), null, 'new'));
+check('--published with one version needs no --only', array('7.1.5'), helphub_published_plan(array('7.1.5'), null, 'new'));
+check('--only picks one listed version', array('7.0.9'), helphub_published_plan(array('7.1.5', '7.0.9'), '7.0.9', 'new'));
+check_throws('--only outside --published refuses', RuntimeException::class,
+	static fn(): array => helphub_published_plan(array('7.1.5', '7.0.9'), '6.9.12', 'new'));
+
 if ($failures) {
 	foreach ($failures as $failure) {
 		fwrite(STDERR, "FAIL: {$failure}\n");

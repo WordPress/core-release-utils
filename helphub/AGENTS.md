@@ -18,6 +18,9 @@ That is deliberate. It is also the reason for every rule below.
   a `const`, not an option, and it is the only status any write sends. Keep it
   that way. Under embargo, publishing early discloses unpatched vulnerabilities
   to the world, so "the tool cannot do it" is worth more than the convenience.
+- **Edit a live page only through `--published`.** It names each version, sends
+  content only, and never sends a status. Keep live-page edits opt-in per version,
+  and never let them create a page or change its status.
 - **Never read the application password into a log, an argument, or output.** It
   comes from the `HELPHUB_APP_PASSWORD` environment variable and is held in a
   static, because PHP prints scalar arguments in stack traces. The credential
