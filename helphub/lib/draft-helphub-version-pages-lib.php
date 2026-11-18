@@ -51,6 +51,11 @@ function helphub_draft_note_specs(array $notes): array {
 	return $specs;
 }
 
+/** The distinct note texts with prefixes stripped, for the news-post check, which covers one page. */
+function helphub_draft_note_texts(array $notes): array {
+	return array_values(array_unique(array_column(helphub_draft_note_specs($notes), 'text')));
+}
+
 /** Refuse a scoped note naming a version outside the run, since a typo would silently drop it. */
 function helphub_draft_note_versions_check(array $specs, array $run_versions): void {
 	foreach ($specs as $spec) {

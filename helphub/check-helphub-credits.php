@@ -121,7 +121,7 @@ if (isset($options['help'])) {
 set_verbose(isset($options['verbose']));
 $raw_notes = (array) ($options['note'] ?? array());
 try {
-	$options['note'] = array_values(array_unique(array_column(array_map('helphub_draft_note_split', $raw_notes), 'text')));
+	$options['note'] = helphub_draft_note_texts($raw_notes);
 } catch (InvalidArgumentException $exception) {
 	fail($exception->getMessage(), 2);
 }

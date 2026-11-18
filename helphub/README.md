@@ -102,6 +102,7 @@ Repeat `--note=<text>` to append escaped non-fix bullets after credits on every 
 Empty or duplicate notes are refused.
 Prefix a note with `<X.Y.Z,X.Y.Z,...>:` to put it only on those versions' pages; a version outside `--versions` exits 2.
 Text before the first colon that is not a version list, such as `Note:`, is plain note text.
+A note that begins like a version list and a colon, such as `8.4: ...`, is read as scoped; rephrase it, for example `PHP 8.4: ...`.
 
 ```sh
 php helphub/draft-helphub-version-pages.php \
@@ -314,7 +315,8 @@ verify it against.
 
 If the pages were drafted with `--note`, pass the same `--note=<text>` values here.
 Each note is then expected once on every page, or only on the versions named by an optional prefix, like a credit line.
-A note given as `<X.Y.Z,...>:<text>` is expected only on those versions' pages, and a version the check did not reach exits 2.
+A note given as `<X.Y.Z,...>:<text>` is expected only on those versions' pages, and a version on a branch that is not a manifest target, or that resolved to a different version, exits 2.
+A version on a target line the run never reached is not refused: that page shows as MISSING or UNREADABLE, and under `--only` nothing is reported for it.
 
 Without a credential, a branch the release wave should have reached but this
 run cannot find is reported unreadable, never missing and never a pass—it
@@ -341,7 +343,7 @@ that replaces a current one for the same reporter, so a human still reads the bu
 
 With `--news-post`, repeat `--note=<text>` to recognize each non-fix security bullet as NOTE once, using normalized, case-insensitive matching.
 An absent note is MISSING and exits 2.
-A version prefix is ignored here: the news post is one page, so the note text is used as given.
+Here the news post is one page, so a version prefix is stripped, scoped copies of the same text count once, and a mistyped prefix exits 2.
 
 ```sh
 php helphub/check-helphub-credits.php \

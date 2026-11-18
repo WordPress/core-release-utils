@@ -644,7 +644,7 @@ foreach ($note_cases as $label => [$body, $notes, $expected_code, $expected_outp
 ob_start();
 try {
 	$scoped_news_code = helphub_credits_check_news($note_manifest, "Security updates\n- Example issue reported by Ann Example.\n- {$note_text}",
-		array_values(array_unique(array_column(array_map('helphub_draft_note_split', array("6.9.5:{$note_text}", "6.8.6:{$note_text}")), 'text'))));
+		helphub_draft_note_texts(array("6.9.5:{$note_text}", "6.8.6:{$note_text}")));
 } finally {
 	$scoped_news_output = ob_get_clean();
 }
@@ -941,6 +941,8 @@ check_throws('Check refuses a scoped version its line resolved differently', Inv
 	static fn() => helphub_credits_note_versions_check(helphub_draft_note_specs(array('7.0.8:X')), array('7.0'), array('7.0' => '7.0.9')));
 check('Check lets an unreached target line fall through', null,
 	helphub_credits_note_versions_check(helphub_draft_note_specs(array('7.0.9:X')), array('7.0'), array()));
+check_throws('News-mode notes refuse an exact duplicate', InvalidArgumentException::class, static fn() => helphub_draft_note_texts(array('X', 'X')));
+check('News-mode notes merge scoped copies', array('X'), helphub_draft_note_texts(array('7.0.9:X', '6.9.8:X')));
 check('Reporter note stays refused when scoped', 1, helphub_credits_news_option_error(
 	array('release' => '99.8.7', 'manifest' => 'example-manifest.json', 'note' => array(helphub_draft_note_split('7.0.9:Foo reported by Bar')['text'])))['code']);
 check_throws('Scoped note with empty text is refused', InvalidArgumentException::class,
