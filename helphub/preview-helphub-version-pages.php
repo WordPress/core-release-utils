@@ -70,7 +70,17 @@ try {
 	foreach (array_keys($manifest['targets']) as $target) {
 		$reaching = helphub_fixes_for_target($manifest['fixes'], $target);
 		$version  = helphub_branch_version($checkout, $target);
-		$branch   = helphub_backport_branch_files($checkout, $manifest, $target);
+		$branch   = null;
+		$skipped  = null;
+		if (null !== $version) {
+			try {
+				$branch = helphub_backport_branch_files($checkout, $manifest, $target, $version['next']);
+			} catch (HelphubMissingTagException $exception) {
+				$skipped = "Page {$version['next']} file count is unknown: {$exception->getMessage()} Run: {$exception->fetchCommand}";
+			} catch (HelphubBranchBehindException | InvalidArgumentException $exception) {
+				$skipped = "Page {$version['next']} file count is unknown: {$exception->getMessage()}.";
+			}
+		}
 		$latest   = null === $tags ? null : helphub_latest_release_tag($target, $tags);
 
 		if (null !== $tags && null !== $version) {
@@ -81,9 +91,11 @@ try {
 		}
 
 		if (null === $version) {
-			$unverified[] = "Branch {$target} is not in the checkout, so its version could not be read.";
+			$unverified[] = "Branch {$target} is not in the checkout, so its page version and file count are unverified.";
 		}
-		if (null === $branch) {
+		if (null !== $skipped) {
+			$unverified[] = $skipped;
+		} elseif (null === $branch && null !== $version) {
 			$unverified[] = "No backport branch for {$target} in the checkout, so its file count is unknown.";
 		}
 

@@ -106,9 +106,17 @@ try {
 		if (!in_array($line, array_keys($manifest['targets']), true)) {
 			continue;
 		}
-		$expected = helphub_expected_files($checkout, $manifest, $line);
+		try {
+			$expected = helphub_expected_files($checkout, $manifest, $line, $version);
+		} catch (HelphubMissingTagException $exception) {
+			$unverified[] = "Page {$version} file list could not be checked: {$exception->getMessage()} Run: {$exception->fetchCommand}";
+			continue;
+		} catch (HelphubBranchBehindException | InvalidArgumentException $exception) {
+			$unverified[] = "Page {$version} file list could not be checked: {$exception->getMessage()}.";
+			continue;
+		}
 		if (null === $expected['ref']) {
-			$unverified[] = "Page {$version} file list could not be checked: the {$line} branch or base is not in the checkout. "
+			$unverified[] = "Page {$version} file list could not be checked: the {$line} branch is not in the checkout. "
 				. 'Fetch the checkout or regenerate the manifest.';
 			continue;
 		}
