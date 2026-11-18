@@ -111,7 +111,7 @@ try {
 		} catch (HelphubMissingTagException $exception) {
 			$unverified[] = "Page {$version} file list could not be checked: {$exception->getMessage()} Run: {$exception->fetchCommand}";
 			continue;
-		} catch (HelphubBranchBehindException $exception) {
+		} catch (HelphubBranchBehindException | InvalidArgumentException $exception) {
 			$unverified[] = "Page {$version} file list could not be checked: {$exception->getMessage()}.";
 			continue;
 		}

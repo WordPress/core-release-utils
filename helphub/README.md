@@ -350,7 +350,7 @@ failure, `2` needs human attention.
    A different tip is refused.
 
    The previous release tag must also exist in the checkout. If it is missing,
-   the tools leave the page unverified and print this command:
+   draft stops, check and preview mark the page unverified, and each prints this command:
 
    ```sh
    git -C <checkout> fetch https://github.com/WordPress/wordpress-develop refs/tags/<tag>:refs/tags/<tag>
