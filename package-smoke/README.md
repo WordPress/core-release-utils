@@ -20,9 +20,11 @@ The tool prints `PACKAGE_MD5=<version> <md5>` for the zip under test.
 
 Exit 0 when every row passed. Exit 2 when a row failed or the environment blocked it. Exit 1 when the script broke before or outside a test.
 
+Worktree removal failures appear under `Cleanup warnings` in the report and do not change the test exit code.
+
 ## In CI
 
-The `Release checks: Packages` workflow (`.github/workflows/package-checks.yml`) runs this tool and `verify-package-matches-source` on each `https://wordpress.org/wordpress-<version>.zip`, as two jobs per zip that run in parallel. Start it by hand with `versions`, a comma-separated list such as `7.1.5,7.0.6`. It refuses X.Y and X.Y.0 versions, because it does not pass `--previous`: test those locally. The `package-smoke` job uploads the report, its screenshots and the log as an artifact.
+The `Release checks: Packages` workflow (`.github/workflows/package-checks.yml`) runs this tool and `verify-package-matches-source` on each `https://wordpress.org/wordpress-<version>.zip`, as two jobs per zip that run in parallel. Start it by hand with `versions`, a comma-separated list such as `7.1.5,7.0.6`. It refuses X.Y and X.Y.0 versions, because it does not pass `--previous`: test those locally. The `package-smoke` job uploads the report, its screenshots and the log as an artifact. Before an announcement, set `embargo` to suppress tool output, artifact uploads, package URLs and md5 values.
 
 ## How it works
 
