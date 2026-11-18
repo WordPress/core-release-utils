@@ -12,6 +12,8 @@ require_once __DIR__ . '/lib/preview-helphub-version-pages-lib.php';
 require_once __DIR__ . '/lib/push-helphub-drafts-lib.php';
 require_once __DIR__ . '/lib/helphub-rest-lib.php';
 
+const HELPHUB_CHECK_AGENT = 'wp-security-helphub-check';
+
 /** Check a release's HelpHub version pages against the release's own artifacts. */
 
 function helphub_usage(string $script): never {
@@ -71,7 +73,7 @@ try {
 		$site = helphub_require_https($options['site']);
 		$targets = helphub_live_target_versions($manifest, $checkout);
 		$source_unverified = $targets['unverified'];
-		$live_pages = helphub_load_live_pages($site, $targets['versions']);
+		$live_pages = helphub_load_live_pages($site, $targets['versions'], null, HELPHUB_CHECK_AGENT);
 		$pages = $live_pages['pages'];
 		$present_versions = $live_pages['found'];
 		$source_unverified = array_merge($source_unverified, $live_pages['unverified']);
@@ -181,20 +183,12 @@ try {
 		}
 
 		$provenance[$version] = $expected['read_from'];
-		$listed_packages = helphub_revised_package_lines($texts[$version]);
-		if (null === $listed_packages) {
-			$package_check = helphub_check_package_section($version, null);
-			$unverified = array_merge($unverified, $package_check['unverified']);
-			continue;
-		}
-		try {
-			$packages = helphub_revised_packages($checkout, $expected['ref'], "refs/tags/{$expected['base']}");
-		} catch (RuntimeException $exception) {
-			$unverified[] = "Page {$version} package list could not be checked: {$exception->getMessage()}";
-			continue;
-		}
-		$package_check = helphub_check_package_section($version, $listed_packages, helphub_package_lines($packages));
-		$findings = array_merge($findings, $package_check['findings']);
+		$package_check = helphub_check_page_packages(
+			$version,
+			$texts[$version],
+			static fn(): array => helphub_revised_packages($checkout, $expected['ref'], "refs/tags/{$expected['base']}")
+		);
+		$findings   = array_merge($findings, $package_check['findings']);
 		$unverified = array_merge($unverified, $package_check['unverified']);
 	}
 

@@ -56,13 +56,13 @@ function helphub_page_to_text(string $body): string {
 	return implode("\n", $lines);
 }
 
-/** Normalize typographic quotes only while two lines are being compared. */
+/** Normalize typographic quotes and dashes only while two lines are being compared. */
 function helphub_normalize_quotes_for_comparison(string $text): string {
 	$text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 
 	return str_replace(
-		array("\u{2018}", "\u{2019}", "\u{201C}", "\u{201D}"),
-		array("'", "'", '"', '"'),
+		array("\u{2018}", "\u{2019}", "\u{201C}", "\u{201D}", "\u{2013}", "\u{2014}"),
+		array("'", "'", '"', '"', '-', '-'),
 		$text
 	);
 }
@@ -239,9 +239,23 @@ function helphub_load_pages(string $directory): array {
 	return $pages;
 }
 
+/** The page version for a branch: the released version when its tag exists, otherwise the next patch. */
+function helphub_live_page_version(string $checkout, array $branch_version, ?callable $runner = null): string {
+	if ($branch_version['bumped']) {
+		return $branch_version['next'];
+	}
+	$runner ??= 'run_command';
+	$tag = $runner(
+		array('git', 'rev-parse', '--verify', '--quiet', "refs/tags/{$branch_version['current']}^{commit}"),
+		$checkout,
+		true
+	);
+
+	return 0 === $tag['code'] ? $branch_version['current'] : $branch_version['next'];
+}
+
 /** Resolve the exact page version for each manifest target from the checkout. */
-function helphub_live_target_versions(array $manifest, string $checkout, ?callable $resolver = null): array {
-	$resolver ??= 'helphub_branch_version';
+function helphub_live_target_versions(array $manifest, string $checkout, ?callable $runner = null): array {
 	$versions   = array();
 	$unverified = array();
 	foreach (array_keys($manifest['targets']) as $target) {
@@ -249,12 +263,12 @@ function helphub_live_target_versions(array $manifest, string $checkout, ?callab
 			$versions[] = $manifest['release'];
 			continue;
 		}
-		$branch_version = $resolver($checkout, $target);
+		$branch_version = helphub_branch_version($checkout, $target, $runner);
 		if (null === $branch_version) {
 			$unverified[] = "Branch {$target} is not in the checkout, so its live page version could not be determined.";
 			continue;
 		}
-		$versions[] = $branch_version['next'];
+		$versions[] = helphub_live_page_version($checkout, $branch_version, $runner);
 	}
 
 	return array('versions' => helphub_sort_versions($versions), 'unverified' => $unverified);
@@ -1068,8 +1082,26 @@ function helphub_check_package_list(string $version, array $found, array $expect
 	));
 }
 
+/** Check one page's package section against a lazily read package list. */
+function helphub_check_page_packages(string $version, string $text, callable $read_packages): array {
+	$listed = helphub_revised_package_lines($text);
+	if (null === $listed) {
+		return helphub_check_package_section($version, null, array());
+	}
+	try {
+		$packages = $read_packages();
+	} catch (RuntimeException $exception) {
+		return array(
+			'findings'   => array(),
+			'unverified' => array("Page {$version} package list could not be checked: {$exception->getMessage()}"),
+		);
+	}
+
+	return helphub_check_package_section($version, $listed, helphub_package_lines($packages));
+}
+
 /** Classify a missing package section as unverified, not as an empty list. */
-function helphub_check_package_section(string $version, ?array $found, array $expected = array()): array {
+function helphub_check_package_section(string $version, ?array $found, array $expected): array {
 	if (null === $found) {
 		return array(
 			'findings'   => array(),

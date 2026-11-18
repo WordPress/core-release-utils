@@ -4,6 +4,15 @@ declare(strict_types=1);
 
 /** Shared authenticated REST requests for HelpHub version pages. */
 
+const HELPHUB_PUSH_AGENT = 'wp-security-helphub-push';
+
+/** A lookup that wordpress.org answered with a non-200 status. */
+final class HelphubLookupFailedException extends RuntimeException {
+	public function __construct(string $message, public readonly int $httpCode) {
+		parent::__construct($message);
+	}
+}
+
 /** Hold the credential in one place instead of threading it through calls. */
 function helphub_auth(?string $set = null): string {
 	static $auth = '';
@@ -33,7 +42,7 @@ function helphub_load_auth(string $user): void {
 }
 
 /** Make one authenticated REST request. */
-function helphub_request(string $url, string $method, ?array $body = null): array {
+function helphub_request(string $url, string $method, ?array $body = null, string $agent = HELPHUB_PUSH_AGENT): array {
 	$options = array(
 		'http' => array(
 			'method'           => $method,
@@ -45,7 +54,7 @@ function helphub_request(string $url, string $method, ?array $body = null): arra
 			'header'           => array(
 				'Authorization: Basic ' . helphub_auth(),
 				'Accept: application/json',
-				'User-Agent: wp-security-helphub-push',
+				'User-Agent: ' . $agent,
 			),
 		),
 	);
@@ -79,6 +88,11 @@ function helphub_request(string $url, string $method, ?array $body = null): arra
 	return array('code' => $code, 'data' => json_decode($raw, true), 'raw' => $raw);
 }
 
+/** Make one authenticated GET request; the only call path a read-only tool may use. */
+function helphub_get(string $url, string $agent): array {
+	return helphub_request($url, 'GET', null, $agent);
+}
+
 /** Find an existing page for a version, in any status. */
 function helphub_find_page(string $site, string $version): ?array {
 	$url = helphub_rest_url($site, null, array(
@@ -107,8 +121,9 @@ function helphub_lookup_pages(string $site, string $version, ?callable $request 
 	));
 	$result = $request($url, 'GET');
 	if (200 !== $result['code'] || !is_array($result['data'])) {
-		throw new RuntimeException(
-			"Lookup failed for {$version} (HTTP {$result['code']}). " . substr($result['raw'], 0, 200)
+		throw new HelphubLookupFailedException(
+			"Lookup failed for {$version} (HTTP {$result['code']}). " . substr($result['raw'], 0, 200),
+			$result['code']
 		);
 	}
 
@@ -116,12 +131,26 @@ function helphub_lookup_pages(string $site, string $version, ?callable $request 
 }
 
 /** Read unambiguous live page bodies and retain which version slugs existed. */
-function helphub_load_live_pages(string $site, array $versions, ?callable $request = null): array {
+function helphub_load_live_pages(string $site, array $versions, ?callable $request = null, ?string $agent = null): array {
+	$request ??= static fn(string $url, string $method): array => helphub_get(
+		$url,
+		$agent ?? throw new InvalidArgumentException('Name the user agent for live reads.')
+	);
 	$pages      = array();
 	$found      = array();
 	$unverified = array();
 	foreach ($versions as $version) {
-		$matches = helphub_lookup_pages($site, $version, $request);
+		try {
+			$matches = helphub_lookup_pages($site, $version, $request);
+		} catch (HelphubLookupFailedException $exception) {
+			if (in_array($exception->httpCode, array(401, 403), true)) {
+				throw new InvalidArgumentException(
+					"wordpress.org rejected the credential for {$version} (HTTP {$exception->httpCode}). "
+					. 'Check HELPHUB_APP_PASSWORD and --user.'
+				);
+			}
+			throw $exception;
+		}
 		if (!$matches) {
 			continue;
 		}

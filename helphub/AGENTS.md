@@ -6,7 +6,8 @@ Rules specific to `helphub/`.
 
 `push-helphub-drafts.php` writes to wordpress.org, a live public site, over the
 REST API. Creating or editing drafts requires `--execute`; the default is a dry
-run. Other tools are read-only against the network. No tool merges PRs or
+run. Other tools are read-only against the network; `check-helphub-version-pages.php --live`
+reads with a credential but calls only `helphub_get()`. No tool merges PRs or
 publishes drafts. HelpHub needs additional safeguards because its drafts live
 on the publishing site.
 

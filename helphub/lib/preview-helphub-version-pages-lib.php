@@ -27,9 +27,10 @@ require_once __DIR__ . '/draft-helphub-version-pages-lib.php';
  * @return array{raw:string,current:string,next:string,bumped:bool}|null Null
  *         when the branch or the file is not in the checkout.
  */
-function helphub_branch_version(string $checkout, string $target): ?array {
+function helphub_branch_version(string $checkout, string $target, ?callable $runner = null): ?array {
+	$runner ??= 'run_command';
 	foreach (array("origin/{$target}", $target) as $candidate) {
-		$result = run_command(
+		$result = $runner(
 			array('git', 'show', "{$candidate}:src/wp-includes/version.php"),
 			$checkout,
 			true

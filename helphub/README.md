@@ -376,7 +376,7 @@ php helphub/check-helphub-version-pages.php \
   --live --site=https://wordpress.org/documentation --user=<login>
 ```
 
-- `--live` reads each target page's raw body in any status using `HELPHUB_APP_PASSWORD`; it never writes.
+- `--live` reads each target page's raw body in any status using `HELPHUB_APP_PASSWORD`; it sends GET requests only, through `helphub_get()`, with its own user agent. A rejected credential (HTTP 401 or 403) exits 2.
 - The package check compares the published package section with the branch's changed `@wordpress/*` pins.
 
 `--pages` is a directory of page bodies, one file per version, named for the
@@ -451,7 +451,7 @@ failure, `2` needs human attention.
 
 ### What it does not check
 
-Check 4 is a curated list, not a spellchecker. A dictionary would flag every
+Check 5 is a curated list, not a spellchecker. A dictionary would flag every
 function name, path, and researcher's name in this prose, and this repository
 takes no external dependencies. Anything that gets through belongs on the list
 in `check-helphub-version-pages-lib.php` afterwards.
@@ -459,7 +459,7 @@ in `check-helphub-version-pages-lib.php` afterwards.
 Use `--pages` for saved bodies or authenticated `--live` reads for current
 draft, pending, private, future, and published bodies.
 
-Nothing here writes to wordpress.org. There is no code path that could.
+Nothing here writes to wordpress.org. `--live` loads the shared REST library, but the check calls only its GET wrapper, `helphub_get()`, which fixes the method to GET.
 
 A generated page cannot carry a copy-propagated defect at all, which is a better
 answer than detecting one. Prefer drafting over checking where you can.
