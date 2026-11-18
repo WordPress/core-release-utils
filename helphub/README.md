@@ -3,8 +3,8 @@
 Five tools that produce and check a release's HelpHub version pages: preview,
 credits, draft, check, push. Run in that order, they mirror the backport
 pipeline in [the private toolkit](https://github.com/WordPress/private-security-utils):
-scope, generate, validate, then a human edits and publishes. Three more check
-live credits and keep the versions index current.
+scope, generate, validate, then a human edits and publishes. Four more check
+live credits, keep the versions index current, and draft the published reply.
 
 `push-helphub-drafts.php` is the only tool in this repository that writes to a
 live public site. It cannot publish. It creates and edits drafts, and with
@@ -263,6 +263,24 @@ the markup WordPress saves (`<br>`, block comments without spaces in their
 JSON), or the read-back fails. To confirm by hand, dry-run the reverse edit (swap `--replace` and
 `--with`): it should match once, while the forward edit should now find no
 anchor.
+
+## Drafting the published reply
+
+```sh
+php helphub/draft-helphub-published-reply.php --versions=7.0.3,6.9.4
+php helphub/draft-helphub-published-reply.php --pages=/path/to/drafts --title='Phase 2 HelpHub pages are published'
+```
+
+Once pages are live, this prints the Slack reply that says so: one line, each
+version linked to its page, newest first. With no credential, it asks the
+public REST API for the versions' published pages, then fetches each page the
+way a reader would, refusing redirects. It drafts the reply only when every
+version has exactly one published page at its expected address that returns
+200. Otherwise it prints nothing to standard output, names each page that is
+not live on standard error, and exits 2; run it again in a minute. It stops
+at the first page that does not answer. A bad version, title or pages directory
+also exits 2, as do more than 50 versions; an unknown option or a failed lookup
+exits 1. It never posts anywhere.
 
 ## Checking live credits
 
