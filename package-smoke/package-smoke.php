@@ -873,12 +873,14 @@ function package_smoke_command_detail(string $output, string $worktree, string $
 
 /**
  * @param array<int,array<string,string>> $rows
+ * @param array<int,string>               $cleanup_warnings
  */
 function package_smoke_render_report(
 	string $release,
 	array $rows,
 	string $generated,
-	?int $elapsed_seconds = null
+	?int $elapsed_seconds = null,
+	array $cleanup_warnings = array()
 ): string {
 	$counts = package_smoke_coverage_counts($rows);
 
@@ -960,6 +962,12 @@ function package_smoke_render_report(
 	} else {
 		foreach ($notes as $row) {
 			$report .= "- {$row['test']}: {$row['reason']}\n";
+		}
+	}
+	if ($cleanup_warnings) {
+		$report .= "\n## Cleanup warnings\n\n";
+		foreach ($cleanup_warnings as $warning) {
+			$report .= "- {$warning}\n";
 		}
 	}
 
@@ -1221,6 +1229,7 @@ function package_smoke_package_run(
 	$npm_cache_config = null;
 	$started = false;
 	$rows = array();
+	$cleanup_warnings = array();
 	try {
 		$download = $download_directory . '/wordpress-package.zip';
 		copy_package($options['package'], $download);
@@ -1368,7 +1377,12 @@ function package_smoke_package_run(
 		} finally {
 			try {
 				if (null !== $worktree) {
-					remove_worktree($repo, $worktree);
+					try {
+						remove_worktree($repo, $worktree);
+					} catch (Throwable $error) {
+						$cleanup_warnings[] = $error->getMessage();
+						fwrite(STDERR, "Cleanup warning: {$error->getMessage()}\n");
+					}
 				}
 			} finally {
 				remove_temporary_directory($download_directory, 'wp-package-ui-download-');
@@ -1394,7 +1408,7 @@ function package_smoke_package_run(
 			remove_temporary_directory($locale_directory, 'wp-package-ui-download-');
 		}
 	}
-	return array('version' => $version, 'rows' => $rows);
+	return array('version' => $version, 'rows' => $rows, 'cleanup_warnings' => $cleanup_warnings);
 }
 
 function package_smoke_usage(string $script): never {
@@ -1509,7 +1523,7 @@ function main(array $argv): int {
 		$generated = (new DateTimeImmutable('now', new DateTimeZone('America/Phoenix')))->format('Y-m-d H:i T');
 		$elapsed_seconds = (int) round((hrtime(true) - $run_started_at) / 1_000_000_000);
 		package_smoke_write_report($options['output'], package_smoke_render_report(
-			$result['version'], $result['rows'], $generated, $elapsed_seconds
+			$result['version'], $result['rows'], $generated, $elapsed_seconds, $result['cleanup_warnings']
 		));
 		$counts = package_smoke_coverage_counts($result['rows']);
 		echo "Summary: ran {$counts['ran']} of {$counts['total']} package phases; passed {$counts['passed']}, "
