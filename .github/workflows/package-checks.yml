@@ -13,11 +13,6 @@ on:
         required: false
         type: string
         default: '3h'
-      interval:
-        description: 'Time between checks'
-        required: false
-        type: string
-        default: '60s'
 
 permissions:
   contents: read
@@ -44,9 +39,7 @@ jobs:
       - id: parse
         env:
           VERSIONS: ${{ inputs.versions }}
-          TIMEOUT: ${{ inputs.timeout }}
-          INTERVAL: ${{ inputs.interval }}
-        run: php .github/scripts/check-inputs.php --refuse-x-y-0 --max-timeout=3h --min-interval=1s --max-interval=3h
+        run: php .github/scripts/check-inputs.php --refuse-x-y-0
 
   package-smoke:
     name: Smoke test ${{ matrix.version }}
@@ -60,7 +53,6 @@ jobs:
     env:
       VERSION: ${{ matrix.version }}
       TIMEOUT: ${{ inputs.timeout }}
-      INTERVAL: ${{ inputs.interval }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -71,7 +63,7 @@ jobs:
           extensions: zip
           coverage: none
       - name: Wait for the package
-        run: php .github/scripts/wait-for-package.php --version="$VERSION" --timeout="$TIMEOUT" --interval="$INTERVAL"
+        run: php .github/scripts/wait-for-package.php --version="$VERSION" --timeout="$TIMEOUT"
       - name: Clone wordpress-develop
         run: git clone --quiet --filter=blob:none https://github.com/WordPress/wordpress-develop.git "$RUNNER_TEMP/wordpress-develop"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -116,7 +108,6 @@ jobs:
     env:
       VERSION: ${{ matrix.version }}
       TIMEOUT: ${{ inputs.timeout }}
-      INTERVAL: ${{ inputs.interval }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -127,7 +118,7 @@ jobs:
           extensions: zip
           coverage: none
       - name: Wait for the package
-        run: php .github/scripts/wait-for-package.php --version="$VERSION" --timeout="$TIMEOUT" --interval="$INTERVAL"
+        run: php .github/scripts/wait-for-package.php --version="$VERSION" --timeout="$TIMEOUT"
       - name: Clone wordpress-develop
         run: git clone --quiet --filter=blob:none https://github.com/WordPress/wordpress-develop.git "$RUNNER_TEMP/wordpress-develop"
       - name: Run verify-package-matches-source

@@ -26,8 +26,6 @@ A failure to remove the temporary worktree no longer stops the report. It prints
 
 The `Release checks: Packages` workflow (`.github/workflows/package-checks.yml`) runs this tool and `verify-package-matches-source` on each `https://wordpress.org/wordpress-<version>.zip`, as two jobs per zip that run in parallel. Dispatch it once after the SVN tags are created with `versions`, a comma-separated list such as `7.1.5,7.0.6`, and a `timeout` (default `3h`; `0` checks once). Each version starts testing as soon as its zip and published md5 agree. It refuses X.Y and X.Y.0 versions, because it does not pass `--previous`: test those locally. The `package-smoke` job uploads the report, its screenshots and the log as an artifact. Before a security release is announced, run both tools locally instead of this workflow: its job names and logs are public.
 
-The smoke and source-match jobs allow 210 and 200 minutes, respectively, covering the three-hour wait and their current run times.
-
 ## How it works
 
 - Hashes the package zip and compares the md5 with the one published at `<zip URL>.md5`. A different or unreadable published md5 fails the md5 row, so a URL from a host with no `.md5` files always fails. Download such a zip and pass its local path. A local `--package` has no published md5, so the comparison is `n/a`.

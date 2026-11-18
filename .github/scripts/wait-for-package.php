@@ -27,16 +27,19 @@ function check_package_ready(string $version, string $directory, callable $fetch
 			unlink($path);
 		}
 	}
-	foreach (array($zip_url => $zip, $md5_url => $md5) as $url => $destination) {
-		try {
-			$fetch($url, $destination);
-		} catch (RuntimeException $error) {
-			return array($url, $error->getMessage());
-		}
+	try {
+		$fetch($md5_url, $md5);
+	} catch (RuntimeException $error) {
+		return array($md5_url, $error->getMessage());
 	}
 	$published = @file_get_contents($md5);
 	if (false === $published || 1 !== preg_match('/^\s*([a-f0-9]{32})(?:\s|$)/i', $published, $match)) {
 		return array($md5_url, 'the published md5 was missing or invalid');
+	}
+	try {
+		$fetch($zip_url, $zip);
+	} catch (RuntimeException $error) {
+		return array($zip_url, $error->getMessage());
 	}
 	$downloaded = md5_file($zip);
 	if (false === $downloaded) {
