@@ -44,6 +44,41 @@ check('X.Y.0 is refused with --refuse-x-y-0', true, str_starts_with((string) ref
 check('X.Y is refused with --refuse-x-y-0', true, str_starts_with((string) refusal('7.1', $x_y_0), '7.1 is an X.Y.0 release.'));
 check('X.Y.0 is accepted without --refuse-x-y-0', array('7.1.0'), check_inputs('7.1.0', array()));
 
+check('Valid wait inputs', null, check_wait_inputs('3h', '60s', array('max-timeout' => '3h', 'min-interval' => '1s', 'max-interval' => '3h')));
+check('Timeout zero checks once', null, check_wait_inputs('0', '60s', array('max-timeout' => '3h', 'min-interval' => '1s')));
+check('Bad timeout format', "Bad timeout: 'later'. Use a whole number with s, m or h.", (static function (): ?string {
+	try {
+		check_wait_inputs('later', '60s', array('max-timeout' => '3h'));
+	} catch (InvalidArgumentException $error) {
+		return $error->getMessage();
+	}
+	return null;
+})());
+check('Timeout over the job limit', 'The timeout 181m is longer than 3h, so the job would stop first.', (static function (): ?string {
+	try {
+		check_wait_inputs('181m', '60s', array('max-timeout' => '3h'));
+	} catch (InvalidArgumentException $error) {
+		return $error->getMessage();
+	}
+	return null;
+})());
+check('Bad interval format', "Bad interval: 'often'. Use a whole number with s, m or h.", (static function (): ?string {
+	try {
+		check_wait_inputs('3h', 'often', array('min-interval' => '1s'));
+	} catch (InvalidArgumentException $error) {
+		return $error->getMessage();
+	}
+	return null;
+})());
+check('Zero interval is refused', 'The interval must be at least 1s.', (static function (): ?string {
+	try {
+		check_wait_inputs('3h', '0', array('min-interval' => '1s'));
+	} catch (InvalidArgumentException $error) {
+		return $error->getMessage();
+	}
+	return null;
+})());
+
 foreach ($failures as $failure) {
 	echo "FAIL {$failure}\n";
 }

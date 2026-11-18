@@ -1,4 +1,4 @@
-# Smoke-tests each release zip (fresh install, upgrade, md5) and checks that it matches its wordpress-develop tag. Start it after the zips are live.
+# Waits for each release zip, smoke-tests it, and checks that it matches its wordpress-develop tag.
 name: "Release checks: Packages"
 
 on:
@@ -8,6 +8,16 @@ on:
         description: 'Comma-separated versions, for example 7.1.5,7.0.6. X.Y and X.Y.0 are refused.'
         required: true
         type: string
+      timeout:
+        description: 'How long to wait for the packages. 0 checks once.'
+        required: false
+        type: string
+        default: '3h'
+      interval:
+        description: 'Time between checks'
+        required: false
+        type: string
+        default: '60s'
 
 permissions:
   contents: read
@@ -34,19 +44,23 @@ jobs:
       - id: parse
         env:
           VERSIONS: ${{ inputs.versions }}
-        run: php .github/scripts/check-inputs.php --refuse-x-y-0
+          TIMEOUT: ${{ inputs.timeout }}
+          INTERVAL: ${{ inputs.interval }}
+        run: php .github/scripts/check-inputs.php --refuse-x-y-0 --max-timeout=3h --min-interval=1s --max-interval=3h
 
   package-smoke:
     name: Smoke test ${{ matrix.version }}
     needs: versions
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 210
     strategy:
       fail-fast: false
       matrix:
         version: ${{ fromJSON(needs.versions.outputs.list) }}
     env:
       VERSION: ${{ matrix.version }}
+      TIMEOUT: ${{ inputs.timeout }}
+      INTERVAL: ${{ inputs.interval }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -56,6 +70,8 @@ jobs:
           php-version: '8.1'
           extensions: zip
           coverage: none
+      - name: Wait for the package
+        run: php .github/scripts/wait-for-package.php --version="$VERSION" --timeout="$TIMEOUT" --interval="$INTERVAL"
       - name: Clone wordpress-develop
         run: git clone --quiet --filter=blob:none https://github.com/WordPress/wordpress-develop.git "$RUNNER_TEMP/wordpress-develop"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -92,13 +108,15 @@ jobs:
     name: Source match ${{ matrix.version }}
     needs: versions
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 200
     strategy:
       fail-fast: false
       matrix:
         version: ${{ fromJSON(needs.versions.outputs.list) }}
     env:
       VERSION: ${{ matrix.version }}
+      TIMEOUT: ${{ inputs.timeout }}
+      INTERVAL: ${{ inputs.interval }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -108,6 +126,8 @@ jobs:
           php-version: '8.1'
           extensions: zip
           coverage: none
+      - name: Wait for the package
+        run: php .github/scripts/wait-for-package.php --version="$VERSION" --timeout="$TIMEOUT" --interval="$INTERVAL"
       - name: Clone wordpress-develop
         run: git clone --quiet --filter=blob:none https://github.com/WordPress/wordpress-develop.git "$RUNNER_TEMP/wordpress-develop"
       - name: Run verify-package-matches-source

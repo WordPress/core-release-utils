@@ -6,12 +6,38 @@ declare(strict_types=1);
 /**
  * Checks the release check workflow inputs before a tool runs.
  *
- * Reads $VERSIONS (comma-separated X.Y.Z or X.Y).
+ * Reads $VERSIONS (comma-separated X.Y.Z or X.Y) and optional wait durations.
  * On success, writes list=<JSON array> to $GITHUB_OUTPUT and VERSIONS=<clean list> to
  * $GITHUB_ENV. On failure, writes the reason to $GITHUB_STEP_SUMMARY and exits 1.
  */
 
 require dirname(__DIR__, 2) . '/lib/lib.php';
+
+/** Same format as the tools' duration options: a whole number with s (default), m or h. */
+function check_inputs_seconds(string $name, string $text): int {
+	if (1 !== preg_match('/^(\d{1,9})([smh]?)$/', $text, $match)) {
+		throw new InvalidArgumentException("Bad {$name}: '{$text}'. Use a whole number with s, m or h.");
+	}
+	return (int) $match[1] * array('' => 1, 's' => 1, 'm' => 60, 'h' => 3600)[$match[2]];
+}
+
+/** Validate TIMEOUT and INTERVAL when their limits are supplied. */
+function check_wait_inputs(string $timeout, string $interval, array $options): void {
+	foreach (array('timeout' => $timeout, 'interval' => $interval) as $name => $text) {
+		$minimum = $options["min-{$name}"] ?? null;
+		$maximum = $options["max-{$name}"] ?? null;
+		if (null === $minimum && null === $maximum) {
+			continue;
+		}
+		$seconds = check_inputs_seconds($name, $text);
+		if (null !== $minimum && $seconds < check_inputs_seconds($name, $minimum)) {
+			throw new InvalidArgumentException("The {$name} must be at least {$minimum}.");
+		}
+		if (null !== $maximum && $seconds > check_inputs_seconds($name, $maximum)) {
+			throw new InvalidArgumentException("The {$name} {$text} is longer than {$maximum}, so the job would stop first.");
+		}
+	}
+}
 
 /**
  * @param array{refuse-x-y-0?: false} $options As parse_cli_options() returns them.
@@ -51,9 +77,10 @@ function check_inputs_append(string $variable, string $line): void {
 }
 
 function check_inputs_main(array $argv): int {
-	$options = cli_options($argv, array('refuse-x-y-0'));
+	$options = cli_options($argv, array('refuse-x-y-0', 'min-timeout:', 'max-timeout:', 'min-interval:', 'max-interval:'));
 	try {
 		$list = check_inputs((string) getenv('VERSIONS'), $options);
+		check_wait_inputs((string) getenv('TIMEOUT'), (string) getenv('INTERVAL'), $options);
 	} catch (InvalidArgumentException $error) {
 		echo '::error::' . $error->getMessage() . "\n";
 		check_inputs_append('GITHUB_STEP_SUMMARY', 'Refused: ' . $error->getMessage());
