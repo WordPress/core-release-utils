@@ -3,8 +3,8 @@
 Five tools that produce and check a release's HelpHub version pages: preview,
 credits, draft, check, push. Run in that order, they mirror the backport
 pipeline in [the private toolkit](https://github.com/WordPress/private-security-utils):
-scope, generate, validate, then a human edits and publishes. Three more check
-live credits and keep the versions index current.
+scope, generate, validate, then a human edits and publishes. Four more check
+live credits, keep the versions index current, and draft the published reply.
 
 `push-helphub-drafts.php` is the only tool in this repository that writes to a
 live public site. It cannot publish. It creates and edits drafts, and with
