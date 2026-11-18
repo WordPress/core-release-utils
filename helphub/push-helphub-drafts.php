@@ -182,8 +182,9 @@ try {
 	echo ($execute ? 'Writing to' : 'DRY RUN against') . " {$site}\n";
 	echo str_repeat('-', 66) . "\n";
 
-	$done    = 0;
-	$skipped = array();
+	$done       = 0;
+	$skipped    = array();
+	$unverified = false;
 
 	if ($creating) {
 		helphub_verify_release_stamp($options['pages'], $options['release']);
@@ -231,7 +232,7 @@ try {
 	} elseif (null !== $published) {
 		$search  = $options['replace'];
 		$replace = $options['with'];
-		foreach (helphub_select($published, $only) as $version) {
+		foreach (helphub_published_plan($published, $only, $replace) as $version) {
 			$matches = helphub_lookup_pages($site, $version);
 			$refusal = helphub_published_refusal($version, $matches);
 			if (null !== $refusal) {
@@ -252,7 +253,7 @@ try {
 				continue;
 			}
 			$current = helphub_lookup_pages($site, $version);
-			if (null !== helphub_published_refusal($version, $current) || $body !== ($current[0]['content']['raw'] ?? null)) {
+			if (null !== helphub_published_refusal($version, $current) || $page['id'] !== ($current[0]['id'] ?? null) || $body !== ($current[0]['content']['raw'] ?? null)) {
 				$skipped[] = "{$version} changed while this ran. Nothing was written to it.";
 				continue;
 			}
@@ -267,11 +268,11 @@ try {
 				);
 			}
 			$after = helphub_lookup_pages($site, $version);
-			if (null !== helphub_published_refusal($version, $after) || $updated !== ($after[0]['content']['raw'] ?? null)) {
-				$skipped[] = "{$version} was written but reads back differently. Check id {$page['id']} in the editor.";
-				continue;
-			}
 			$done++;
+			if (null !== helphub_published_refusal($version, $after) || $page['id'] !== ($after[0]['id'] ?? null) || $updated !== ($after[0]['content']['raw'] ?? null)) {
+				$skipped[]  = "{$version} was written but reads back differently. Check id {$page['id']} in the editor.";
+				$unverified = true;
+			}
 		}
 	} else {
 		$search  = $options['replace'];
@@ -374,7 +375,7 @@ try {
 	} else {
 		echo "\nEvery page is a draft. Publishing stays a human action in the editor.\n";
 	}
-	exit($skipped ? 2 : 0);
+	exit($unverified ? 3 : ($skipped ? 2 : 0));
 } catch (InvalidArgumentException $exception) {
 	fail($exception->getMessage(), 2);
 } catch (RuntimeException $exception) {

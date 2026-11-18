@@ -1108,8 +1108,6 @@ check_throws('--published refuses a non-version', InvalidArgumentException::clas
 	static fn(): array => helphub_published_versions('7.1.5,latest'));
 check_throws('--published refuses an empty entry', InvalidArgumentException::class,
 	static fn(): array => helphub_published_versions('7.1.5,'));
-check_throws('--only outside --published refuses', RuntimeException::class,
-	static fn(): array => helphub_select(helphub_published_versions('7.1.5,7.0.9'), '6.9.12'));
 $live = array('id' => 5, 'slug' => 'version-7-1-5', 'status' => 'publish', 'content' => array('raw' => 'x'));
 check('A single live page at the slug may be edited', null, helphub_published_refusal('7.1.5', array($live)));
 check('A missing page is refused', '7.1.5 has no page. Nothing was changed.', helphub_published_refusal('7.1.5', array()));
@@ -1126,12 +1124,22 @@ check('A published edit sends content only', array('content' => 'body'), helphub
 check_throws('A published edit refuses an empty body', InvalidArgumentException::class,
 	static fn(): array => helphub_content_payload(" \n"));
 check('The dry run lists only the paths a replacement adds',
-	"    + /wp-includes/blocks/comment-date.php",
+	"    + /wp-includes/blocks/comment-date.php\n    (27 bytes become 67)",
 	helphub_describe_replacement('<pre>/a.php<br>/b.php</pre>', '<pre>/a.php<br>/wp-includes/blocks/comment-date.php<br>/b.php</pre>'));
 check('The dry run shows removed and added lines',
-	"    - <p>No package was revised.</p>\n    + <pre>@wordpress/editor - 14.0.9</pre>",
+	"    - <p>No package was revised.</p>\n    + <pre>@wordpress/editor - 14.0.9</pre>\n    (44 bytes become 51)",
 	helphub_describe_replacement("<!-- wp:p -->\n<p>No package was revised.</p>", "<!-- wp:p -->\n<pre>@wordpress/editor - 14.0.9</pre>"));
-check('An identical replacement says so', '    (no line changes)', helphub_describe_replacement('same', 'same'));
+check('An identical replacement shows only its size', '    (4 bytes become 4)', helphub_describe_replacement('same', 'same'));
+check('A change the line diff hides shows both texts', "    - a<br>a\n    + a\n    (6 bytes become 1)",
+	helphub_describe_replacement('a<br>a', 'a'));
+check_throws('--published refuses an empty --with', InvalidArgumentException::class,
+	static fn(): array => helphub_published_plan(array('7.1.5'), null, " \n"));
+check_throws('--published with several versions needs --only', InvalidArgumentException::class,
+	static fn(): array => helphub_published_plan(array('7.1.5', '7.0.9'), null, 'new'));
+check('--published with one version needs no --only', array('7.1.5'), helphub_published_plan(array('7.1.5'), null, 'new'));
+check('--only picks one listed version', array('7.0.9'), helphub_published_plan(array('7.1.5', '7.0.9'), '7.0.9', 'new'));
+check_throws('--only outside --published refuses', RuntimeException::class,
+	static fn(): array => helphub_published_plan(array('7.1.5', '7.0.9'), '6.9.12', 'new'));
 
 if ($failures) {
 	foreach ($failures as $failure) {

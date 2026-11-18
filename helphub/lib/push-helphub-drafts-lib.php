@@ -177,7 +177,19 @@ function helphub_published_versions(string $list): array {
 		$versions[$version] = true;
 	}
 
-	return helphub_sort_versions(array_map('strval', array_keys($versions)));
+	return helphub_sort_versions(array_keys($versions));
+}
+
+/** Pick the published versions one run may edit, refusing a deletion or an edit spread over several pages. */
+function helphub_published_plan(array $published, ?string $only, string $with): array {
+	if ('' === trim($with)) {
+		throw new InvalidArgumentException('--published refuses an empty --with: a missing input file would delete text from a live page.');
+	}
+	if (null === $only && 1 < count($published)) {
+		throw new InvalidArgumentException('--published lists several versions, so name the one to edit with --only.');
+	}
+
+	return helphub_select($published, $only);
 }
 
 /** Say why a version's lookup must not be edited as a published page, or return null. */
@@ -223,5 +235,10 @@ function helphub_describe_replacement(string $search, string $replace): string {
 		$lines[] = '    + ' . $line;
 	}
 
-	return $lines ? implode("\n", $lines) : '    (no line changes)';
+	if (!$lines && $search !== $replace) {
+		$lines = array('    - ' . $search, '    + ' . $replace);
+	}
+	$lines[] = sprintf('    (%d bytes become %d)', strlen($search), strlen($replace));
+
+	return implode("\n", $lines);
 }

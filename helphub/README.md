@@ -242,21 +242,25 @@ re-read immediately before writing, so a page published mid-run is left alone.
 ```sh
 php helphub/push-helphub-drafts.php \
   --site=… --user=… --release=7.0.3 \
-  --published=7.0.3,6.9.4 \
-  --replace="$(cat 7.0.3.files.old)" --with="$(cat 7.0.3.files.new)" --only=7.0.3
+  --published=7.0.3,6.9.4 --only=7.0.3 \
+  --replace="$(cat 7.0.3.files.old)" --with="$(cat 7.0.3.files.new)"
 ```
 
 A page can go live before a mistake on it is found. `--published` is the only
 way to edit one, and it is opt-in per version: it looks up each named version
 by slug and refuses a page that is missing, duplicated, or not published. A
 version left off the list is never read or written, and `--only` must name one
-on the list. The anchor rules are the same as for drafts.
+on the list; it is required when the list has more than one version. The
+anchor rules are the same as for drafts, and an empty `--with` is refused, so a
+missing input file cannot delete text from a live page.
 
 The dry run prints the lines the replacement removes and adds. With
 `--execute`, the page is re-read just before writing and left alone if its
 status or content changed. The write sends content only, never a status, so
 the page stays published. The page is then read back and must hold exactly the
-new body. To confirm by hand, dry-run the reverse edit (swap `--replace` and
+new body; a write that reads back differently exits 3. Write the new text in
+the markup WordPress saves (`<br>`, block comments without spaces in their
+JSON), or the read-back fails. To confirm by hand, dry-run the reverse edit (swap `--replace` and
 `--with`): it should match once, while the forward edit should now find no
 anchor.
 
@@ -291,7 +295,7 @@ might be a draft nobody can see yet.
 
 A mismatch this tool finds is fixed by a human: push-helphub-drafts.php's
 `--replace` for a draft, `--replace` with `--published` for a live page. A live-page writer was
-deliberately left out of this tool until bullets can be located by exact
+deliberately left out of this credits checker until bullets can be located by exact
 source span rather than a positional or search-string lookup.
 
 Add `--news-post=<URL or file>` to check reporter names and GHSA IDs in a news
