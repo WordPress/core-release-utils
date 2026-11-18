@@ -377,6 +377,7 @@ php helphub/check-helphub-version-pages.php \
 ```
 
 - `--live` reads each target page's raw body in any status using `HELPHUB_APP_PASSWORD`; it sends GET requests only, through `helphub_get()`, with its own user agent. A rejected credential (HTTP 401 or 403) exits 2.
+- A target branch's page version is its next patch. Once `refs/tags/<release>` exists in the checkout, the release has landed and it is the branch's current version instead.
 - The package check compares the published package section with the branch's changed `@wordpress/*` pins.
 
 `--pages` is a directory of page bodies, one file per version, named for the

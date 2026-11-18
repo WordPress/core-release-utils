@@ -239,25 +239,24 @@ function helphub_load_pages(string $directory): array {
 	return $pages;
 }
 
-/** The page version for a branch: the released version when its tag exists, otherwise the next patch. */
-function helphub_live_page_version(string $checkout, array $branch_version, ?callable $runner = null): string {
-	if ($branch_version['bumped']) {
-		return $branch_version['next'];
-	}
+/** Whether the checkout holds a tag, which means that release has landed. */
+function helphub_release_tag_exists(string $checkout, string $release, ?callable $runner = null): bool {
 	$runner ??= 'run_command';
-	$tag = $runner(
-		array('git', 'rev-parse', '--verify', '--quiet', "refs/tags/{$branch_version['current']}^{commit}"),
-		$checkout,
-		true
-	);
+	$tag = $runner(array('git', 'rev-parse', '--verify', '--quiet', "refs/tags/{$release}^{commit}"), $checkout, true);
 
-	return 0 === $tag['code'] ? $branch_version['current'] : $branch_version['next'];
+	return 0 === $tag['code'];
+}
+
+/** The page version for a branch: its current version once the manifest release has landed, otherwise the next patch. */
+function helphub_live_page_version(array $branch_version, bool $release_landed): string {
+	return $release_landed && !$branch_version['bumped'] ? $branch_version['current'] : $branch_version['next'];
 }
 
 /** Resolve the exact page version for each manifest target from the checkout. */
 function helphub_live_target_versions(array $manifest, string $checkout, ?callable $runner = null): array {
 	$versions   = array();
 	$unverified = array();
+	$landed     = helphub_release_tag_exists($checkout, $manifest['release'], $runner);
 	foreach (array_keys($manifest['targets']) as $target) {
 		if ($target === helphub_version_line($manifest['release'])) {
 			$versions[] = $manifest['release'];
@@ -268,7 +267,7 @@ function helphub_live_target_versions(array $manifest, string $checkout, ?callab
 			$unverified[] = "Branch {$target} is not in the checkout, so its live page version could not be determined.";
 			continue;
 		}
-		$versions[] = helphub_live_page_version($checkout, $branch_version, $runner);
+		$versions[] = helphub_live_page_version($branch_version, $landed);
 	}
 
 	return array('versions' => helphub_sort_versions($versions), 'unverified' => $unverified);
@@ -1083,13 +1082,14 @@ function helphub_check_package_list(string $version, array $found, array $expect
 }
 
 /** Check one page's package section against a lazily read package list. */
-function helphub_check_page_packages(string $version, string $text, callable $read_packages): array {
+function helphub_check_page_packages(string $version, string $text, string $checkout, string $ref, string $base, ?callable $reader = null): array {
+	$reader ??= 'helphub_revised_packages';
 	$listed = helphub_revised_package_lines($text);
 	if (null === $listed) {
 		return helphub_check_package_section($version, null, array());
 	}
 	try {
-		$packages = $read_packages();
+		$packages = $reader($checkout, $ref, "refs/tags/{$base}");
 	} catch (RuntimeException $exception) {
 		return array(
 			'findings'   => array(),

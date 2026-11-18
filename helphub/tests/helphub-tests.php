@@ -1193,8 +1193,8 @@ $version_file_runner = static function (array $versions, array $tags) : callable
 	};
 };
 $live_manifest = array('release' => '7.1.5', 'targets' => array('7.1' => array(), '7.0' => array(), '6.9' => array()));
-$resolved_live_targets = helphub_live_target_versions($live_manifest, 'unused', $version_file_runner(array('7.0' => '7.0.8-src'), array()));
-check('Live targets keep the manifest release and resolve older target versions', array('7.1.5', '7.0.9'),
+$resolved_live_targets = helphub_live_target_versions($live_manifest, 'unused', $version_file_runner(array('7.0' => '7.0.9-src'), array('7.0.9')));
+check('Live targets keep the manifest release and resolve older target versions to the next patch', array('7.1.5', '7.0.10'),
 	$resolved_live_targets['versions']);
 check('An unresolved live target is unverified',
 	array('Branch 6.9 is not in the checkout, so its live page version could not be determined.'),
@@ -1202,12 +1202,22 @@ check('An unresolved live target is unverified',
 $landed_live_targets = helphub_live_target_versions(
 	$live_manifest,
 	'unused',
-	$version_file_runner(array('7.0' => '7.0.9-src', '6.9' => '6.9.11-alpha-62792-src'), array('7.0.9'))
+	$version_file_runner(array('7.0' => '7.0.10-src', '6.9' => '6.9.11-alpha-62792-src'), array('7.0.9', '7.1.5'))
 );
-check('A landed release resolves to its released version, not the next patch', array('7.1.5', '7.0.9', '6.9.11'),
+check('A landed manifest release resolves each branch to its current version', array('7.1.5', '7.0.10', '6.9.11'),
 	$landed_live_targets['versions']);
-check('An unlanded branch that is already bumped keeps its bumped version', array('7.1.5', '7.0.9', '6.9.11'),
-	helphub_live_target_versions($live_manifest, 'unused', $version_file_runner(array('7.0' => '7.0.8-src', '6.9' => '6.9.11-alpha-62792-src'), array()))['versions']);
+check('A bumped alpha branch keeps its bumped version before landing', array('7.1.5', '7.0.10', '6.9.11'),
+	helphub_live_target_versions($live_manifest, 'unused', $version_file_runner(array('7.0' => '7.0.9-src', '6.9' => '6.9.11-alpha-62792-src'), array('7.0.9')))['versions']);
+$tag_reads = 0;
+$counting_runner = $version_file_runner(array('7.0' => '7.0.9-src', '6.9' => '6.9.11-src'), array('7.0.9', '6.9.11'));
+helphub_live_target_versions($live_manifest, 'unused', static function (array $command, ?string $cwd = null, bool $allow_failure = false) use ($counting_runner, &$tag_reads): array {
+	if ('rev-parse' === $command[1]) {
+		++$tag_reads;
+	}
+
+	return $counting_runner($command, $cwd, $allow_failure);
+});
+check('The release tag is checked once per run', 1, $tag_reads);
 
 $rejected_request = static fn(string $url, string $method): array => array('code' => 401, 'data' => null, 'raw' => 'rejected');
 $rejected_message = '';
@@ -1236,8 +1246,9 @@ try {
 	helphub_load_auth('example-user');
 } catch (InvalidArgumentException $exception) {
 	$credential_error = $exception->getMessage();
+} finally {
+	putenv(false === $previous_password ? 'HELPHUB_APP_PASSWORD' : 'HELPHUB_APP_PASSWORD=' . $previous_password);
 }
-putenv(false === $previous_password ? 'HELPHUB_APP_PASSWORD' : 'HELPHUB_APP_PASSWORD=' . $previous_password);
 check('A missing live credential names its environment variable', true,
 	str_contains($credential_error, 'HELPHUB_APP_PASSWORD'));
 
@@ -1276,23 +1287,30 @@ check('A missing package section is unverified', array(
 	'findings' => array(),
 	'unverified' => array('Page 7.1.5 has no "List of packages revised" section, so its package list was not checked.'),
 ), helphub_check_package_section('7.1.5', $missing_package_lines, array()));
-$wired_packages = static fn(): array => array('@wordpress/editor' => '14.0.9');
+$wired_calls    = array();
+$wired_packages = static function (string $checkout, string $ref, string $base) use (&$wired_calls): array {
+	$wired_calls[] = array($checkout, $ref, $base);
+
+	return array('@wordpress/editor' => '14.0.9');
+};
 $wired_no_package = helphub_check_page_packages('7.1.5', helphub_page_to_text(
 	'<h3>List of packages revised</h3><p>No package was revised.</p>'
-), $wired_packages);
+), '/checkout', 'origin/7.1', '7.1.4', $wired_packages);
+check('The package reader receives the checkout, branch ref and base tag ref', array(array('/checkout', 'origin/7.1', 'refs/tags/7.1.4')), $wired_calls);
 check('A page saying no package was revised on a branch with changed pins is a finding', 1, count($wired_no_package['findings']));
 check('The wired package finding names the changed pin', true,
 	str_contains($wired_no_package['findings'][0] ?? '', '@wordpress/editor - 14.0.9'));
 check('A page without a package section is unverified through the wiring', 1,
-	count(helphub_check_page_packages('7.1.5', helphub_page_to_text('<h3>List of files revised</h3><pre>/example.php</pre>'), $wired_packages)['unverified']));
+	count(helphub_check_page_packages('7.1.5', helphub_page_to_text('<h3>List of files revised</h3><pre>/example.php</pre>'), '/checkout', 'origin/7.1', '7.1.4', $wired_packages)['unverified']));
 check('A package read failure is unverified through the wiring',
 	array('Page 7.1.5 package list could not be checked: no base'),
 	helphub_check_page_packages('7.1.5', helphub_page_to_text('<h3>List of packages revised</h3><p>No package was revised.</p>'),
+		'/checkout', 'origin/7.1', '7.1.4',
 		static function (): array { throw new RuntimeException('no base'); })['unverified']);
 check('Package comparison accepts a texturized dash',  array(),
 	helphub_check_page_packages('7.1.5', helphub_page_to_text(
 		"<h3>List of packages revised</h3><ul><li>@wordpress/editor \u{2013} 14.0.9</li></ul>"
-	), $wired_packages)['findings']);
+	), '/checkout', 'origin/7.1', '7.1.4', $wired_packages)['findings']);
 check('Package comparison accepts an entity-encoded em dash', array(),
 	helphub_check_package_list('7.1.5', array('@wordpress/editor &#8212; 14.0.9'), array('@wordpress/editor - 14.0.9')));
 check('Package comparison accepts rendered curly quotes and entities', array(),

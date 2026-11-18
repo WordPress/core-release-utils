@@ -186,7 +186,9 @@ try {
 		$package_check = helphub_check_page_packages(
 			$version,
 			$texts[$version],
-			static fn(): array => helphub_revised_packages($checkout, $expected['ref'], "refs/tags/{$expected['base']}")
+			$checkout,
+			$expected['ref'],
+			$expected['base']
 		);
 		$findings   = array_merge($findings, $package_check['findings']);
 		$unverified = array_merge($unverified, $package_check['unverified']);
