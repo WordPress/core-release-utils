@@ -70,10 +70,11 @@ function helphub_credits_reaching_fixes(array $fixes, string $line, array $issue
  *
  * @param array<int,string[]> $fixes
  * @param array<int,string>   $credits
- * @param string[]            $notes   Non-fix bullets, as given to the draft generator.
+ * @param array<int,string|array{text:string,versions:?string[]}> $notes Non-fix bullets, as strings (every page) or helphub_draft_note_specs() entries.
+ * @param ?string             $version The page's version, used to apply a scoped note.
  * @return array{lines:string[],fill_ins:int[]}
  */
-function helphub_credits_expected_lines(array $fixes, array $credits, string $line, array $issues = array(), ?array $entries = null, array $notes = array()): array {
+function helphub_credits_expected_lines(array $fixes, array $credits, string $line, array $issues = array(), ?array $entries = null, array $notes = array(), ?string $version = null): array {
 	$entries = $entries ?? helphub_manifest_entries($fixes, $issues);
 	$result   = helphub_credit_lines($fixes, $credits, $line, $issues, $entries);
 	$numbers  = helphub_credits_reaching_fixes($fixes, $line, $issues, $entries);
@@ -92,7 +93,10 @@ function helphub_credits_expected_lines(array $fixes, array $credits, string $li
 		$lines[] = $normalized;
 	}
 	foreach ($notes as $note) {
-		$lines[] = helphub_credits_normalize_line($note);
+		$spec = is_array($note) ? $note : array('text' => $note, 'versions' => null);
+		if (null === $spec['versions'] || (null !== $version && in_array($version, $spec['versions'], true))) {
+			$lines[] = helphub_credits_normalize_line($spec['text']);
+		}
 	}
 
 	return array('lines' => $lines, 'fill_ins' => array_keys($fill_ins));
@@ -237,7 +241,8 @@ function helphub_credits_wave_stray(array $pages, array $wave, string $line, ?st
 
 function helphub_credits_news_option_error(array $options, ?array $manifest = null): ?array {
 	foreach ((array) ($options['note'] ?? array()) as $note) {
-		if (null !== helphub_credits_reporter(' ' . helphub_credits_normalize_line((string) $note))) {
+		$note = helphub_draft_note_split((string) $note)['text'];
+		if (null !== helphub_credits_reporter(' ' . helphub_credits_normalize_line($note))) {
 			return array('message' => "--note names a reporter, so it is a fix credit, not a note: {$note}", 'code' => 1);
 		}
 	}
@@ -399,6 +404,7 @@ function helphub_credits_check_news(array $manifest, string $post, array $notes 
 	$security = helphub_credits_news_security_section($post, $bullets);
 	$reporters = array();
 	$counts = array('PASS' => 0, 'MISSING' => 0, 'UNCHECKED' => 0, 'SKIPPED' => 0, 'NOTE' => 0, 'UNMATCHED' => 0);
+	$notes = array_map(static fn($note): string => helphub_draft_note_split((string) $note)['text'], $notes);
 	$pending_notes = array_map(static fn(string $note): string => mb_strtolower(helphub_credits_normalize_line(helphub_credits_strip_markdown_links($note)), 'UTF-8'), $notes);
 	$rows   = array();
 	foreach ($manifest['credits'] as $number => $credit) {

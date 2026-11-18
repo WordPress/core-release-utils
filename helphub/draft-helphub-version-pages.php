@@ -14,16 +14,18 @@ require_once __DIR__ . '/lib/draft-helphub-version-pages-lib.php';
 function helphub_draft_usage(string $script): never {
 	fail(
 		"Usage: {$script} --release=<X.Y.Z> --manifest=<helphub-manifest-X.Y.Z.json> --checkout=<path> "
-		. '--versions=<X.Y.Z,...> --date=<YYYY-MM-DD> --out=<dir> [--security-issues=N] [--note=<text>]... [--verbose] [--help]'
+		. '--versions=<X.Y.Z,...> --date=<YYYY-MM-DD> --out=<dir> [--security-issues=N] [--note=[<X.Y.Z,...>:]<text>]... [--verbose] [--help]'
 	);
 }
 
 $options = cli_options($argv, array('release:', 'manifest:', 'checkout:', 'versions:', 'date:', 'out:', 'security-issues:', 'note:', 'verbose', 'help'));
 if (isset($options['help'])) {
 	echo "Usage: {$argv[0]} --release=<X.Y.Z> --manifest=<helphub-manifest-X.Y.Z.json> --checkout=<path> "
-		. "--versions=<X.Y.Z,...> --date=<YYYY-MM-DD> --out=<dir> [--security-issues=N] [--note=<text>]... [--verbose] [--help]\n"
+		. "--versions=<X.Y.Z,...> --date=<YYYY-MM-DD> --out=<dir> [--security-issues=N] [--note=[<X.Y.Z,...>:]<text>]... [--verbose] [--help]\n"
 		. "\nRepeat --note to append non-fix security bullets to every page without changing vulnerability counts.\n"
-		. "Empty or duplicate notes are refused. Example: --note=\"An update to the example widget library.\"\n";
+		. "A <X.Y.Z,...>: prefix limits a note to those versions' pages; a version outside --versions is refused.\n"
+		. "Empty or duplicate notes are refused. Example: --note=\"An update to the example widget library.\"\n"
+		. "Scoped:  --note=\"6.9.5,6.8.6:An update to the example widget library.\"\n";
 	exit(0);
 }
 set_verbose(isset($options['verbose']));
@@ -34,7 +36,7 @@ foreach (array('release', 'manifest', 'checkout', 'versions', 'date', 'out') as 
 }
 
 try {
-	$security_notes = helphub_draft_notes((array) ($options['note'] ?? array()));
+	$security_notes = helphub_draft_note_specs((array) ($options['note'] ?? array()));
 	verbose_log('Starting HelpHub version page draft');
 	$manifest_json = @file_get_contents($options['manifest']);
 	if (false === $manifest_json) {
@@ -69,6 +71,7 @@ try {
 		fail('--versions must name at least one released version.', 2);
 	}
 	$versions = helphub_sort_versions($versions);
+	helphub_draft_note_versions_check($security_notes, $versions);
 
 	// Every released version must map to a targeted branch.
 	foreach ($versions as $version) {
@@ -127,7 +130,7 @@ try {
 			$packages,
 			$manifest['issues'] ?? array(),
 			$entries,
-			$security_notes
+			helphub_draft_notes_for_version($security_notes, $version)
 		);
 
 		$path = rtrim($out_dir, '/') . "/{$version}.txt";
