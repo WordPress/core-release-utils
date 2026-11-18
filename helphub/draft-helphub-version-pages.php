@@ -22,7 +22,7 @@ $options = cli_options($argv, array('release:', 'manifest:', 'checkout:', 'versi
 if (isset($options['help'])) {
 	echo "Usage: {$argv[0]} --release=<X.Y.Z> --manifest=<helphub-manifest-X.Y.Z.json> --checkout=<path> "
 		. "--versions=<X.Y.Z,...> --date=<YYYY-MM-DD> --out=<dir> [--security-issues=N] [--note=[<X.Y.Z,...>:]<text>]... [--verbose] [--help]\n"
-		. "\nRepeat --note to append non-fix security bullets to every page without changing vulnerability counts.\n"
+		. "\nRepeat --note to append non-fix security bullets to every page, or only the versions named by an optional version prefix, without changing vulnerability counts.\n"
 		. "A <X.Y.Z,...>: prefix limits a note to those versions' pages; a version outside --versions is refused.\n"
 		. "Empty or duplicate notes are refused. Example: --note=\"An update to the example widget library.\"\n"
 		. "Scoped:  --note=\"6.9.5,6.8.6:An update to the example widget library.\"\n";

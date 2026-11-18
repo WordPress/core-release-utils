@@ -4,34 +4,35 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/helphub-manifest-lib.php';
 
-/**
- * Split one --note value into its text and the versions it is scoped to, or null for every page.
- *
- * @return array{text:string,versions:?string[]}
- */
+/** Whether a string is a release version such as 7.0 or 7.0.3. */
+function helphub_is_version(string $version): bool {
+	return 1 === preg_match('/^[0-9]+\.[0-9]+(\.[0-9]+)?$/', $version);
+}
+
+/** Split one --note into its text and its version scope (null for every page); refuses a mistyped prefix. */
 function helphub_draft_note_split(string $note): array {
 	$note  = trim($note);
 	$colon = strpos($note, ':');
 	if (false !== $colon) {
 		$prefix = substr($note, 0, $colon);
-		if (1 === preg_match('/^\s*[0-9]+\.[0-9]+(\.[0-9]+)?(\s*,\s*[0-9]+\.[0-9]+(\.[0-9]+)?)*\s*$/', $prefix)) {
-			$versions = array_values(array_unique(array_map('trim', explode(',', $prefix))));
+		if (1 === preg_match('/^\s*v?[0-9.,; ]*[0-9][0-9.,; ]*$/i', $prefix)) {
+			$versions = array();
+			foreach (explode(',', $prefix) as $piece) {
+				if (!helphub_is_version(trim($piece))) {
+					throw new InvalidArgumentException("--note has a malformed version prefix \"{$prefix}\"; use <X.Y.Z,X.Y.Z,...>:<text>.");
+				}
+				$versions[] = trim($piece);
+			}
 
-			return array('text' => trim(substr($note, $colon + 1)), 'versions' => $versions);
+			return array('text' => trim(substr($note, $colon + 1)), 'versions' => array_values(array_unique($versions)));
 		}
 	}
 
 	return array('text' => $note, 'versions' => null);
 }
 
-/**
- * Parse and validate --note values into {text, versions} specs.
- *
- * @param string[]  $notes
- * @param ?string[] $run_versions When given, a scoped version outside it is refused.
- * @return array<int,array{text:string,versions:?string[]}>
- */
-function helphub_draft_note_specs(array $notes, ?array $run_versions = null): array {
+/** Parse --note values into {text, versions} specs, refusing empty text and overlapping duplicates. */
+function helphub_draft_note_specs(array $notes): array {
 	$specs = array();
 	foreach ($notes as $note) {
 		$spec = helphub_draft_note_split($note);
@@ -46,19 +47,11 @@ function helphub_draft_note_specs(array $notes, ?array $run_versions = null): ar
 		}
 		$specs[] = $spec;
 	}
-	if (null !== $run_versions) {
-		helphub_draft_note_versions_check($specs, $run_versions);
-	}
 
 	return $specs;
 }
 
-/**
- * Refuse a scoped note that names a version outside the run, since a typo would silently drop it.
- *
- * @param array<int,array{text:string,versions:?string[]}> $specs
- * @param string[]                                         $run_versions
- */
+/** Refuse a scoped note naming a version outside the run, since a typo would silently drop it. */
 function helphub_draft_note_versions_check(array $specs, array $run_versions): void {
 	foreach ($specs as $spec) {
 		foreach ($spec['versions'] ?? array() as $version) {
@@ -69,12 +62,7 @@ function helphub_draft_note_versions_check(array $specs, array $run_versions): v
 	}
 }
 
-/**
- * The note texts that belong on one version's page.
- *
- * @param array<int,array{text:string,versions:?string[]}> $specs
- * @return string[]
- */
+/** The note texts that belong on one version's page. */
 function helphub_draft_notes_for_version(array $specs, string $version): array {
 	$texts = array();
 	foreach ($specs as $spec) {
@@ -84,16 +72,6 @@ function helphub_draft_notes_for_version(array $specs, string $version): array {
 	}
 
 	return $texts;
-}
-
-/**
- * The note texts, without any version prefix.
- *
- * @param string[] $notes
- * @return string[]
- */
-function helphub_draft_notes(array $notes): array {
-	return array_column(helphub_draft_note_specs($notes), 'text');
 }
 
 /**
@@ -113,7 +91,7 @@ function helphub_draft_notes(array $notes): array {
  * tool creates.
  */
 function helphub_version_slug(string $version): string {
-	if (1 !== preg_match('/^[0-9]+\.[0-9]+(\.[0-9]+)?$/', $version)) {
+	if (!helphub_is_version($version)) {
 		throw new InvalidArgumentException("Not a version: {$version}");
 	}
 
@@ -593,6 +571,7 @@ function helphub_page_paths(array $paths, array $release_paths = array()): array
  * @param array<string,string> $release_paths Repository path to release path.
  * @param array<string,string> $packages      Package name to shipped version,
  *                                            from helphub_revised_packages().
+ * @param string[]             $notes         Note texts for this page, already parsed.
  * @return array{body:string,missing_credits:int[]}
  */
 function helphub_draft_page(
@@ -609,7 +588,6 @@ function helphub_draft_page(
 	?array $entries = null,
 	array $notes = array()
 ): array {
-	$notes   = helphub_draft_notes($notes);
 	$entries = $entries ?? helphub_manifest_entries($fixes, $issues);
 	$line    = helphub_draft_line($version);
 	$credit  = helphub_credit_lines($fixes, $credits, $line, $issues, $entries);

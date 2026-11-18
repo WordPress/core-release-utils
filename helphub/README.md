@@ -98,7 +98,7 @@ Use `--security-issues=N` to check the release lead's announced issue count.
 `N` must be a positive integer. A mismatch exits 2 before writing any page.
 Add missing issues in the source scope, then export the manifest again.
 
-Repeat `--note=<text>` to append escaped non-fix bullets after credits on every draft without changing vulnerability counts or courtesy text.
+Repeat `--note=<text>` to append escaped non-fix bullets after credits on every draft (or only on the versions named by an optional version prefix) without changing vulnerability counts or courtesy text.
 Empty or duplicate notes are refused.
 Prefix a note with `<X.Y.Z,X.Y.Z,...>:` to put it only on those versions' pages; a version outside `--versions` exits 2.
 Text before the first colon that is not a version list, such as `Note:`, is plain note text.
@@ -113,7 +113,7 @@ php helphub/draft-helphub-version-pages.php \
 Scoped to two versions:
 
 ```sh
-  --note="99.7.8:An update to the example widget library."
+  --note="99.8.7,99.7.8:An update to the example widget library."
 ```
 
 ### Issues
@@ -313,7 +313,7 @@ always a mismatch, on every page it reaches, because there is nothing to
 verify it against.
 
 If the pages were drafted with `--note`, pass the same `--note=<text>` values here.
-Each note is then expected once on every page, like a credit line.
+Each note is then expected once on every page, or only on the versions named by an optional prefix, like a credit line.
 A note given as `<X.Y.Z,...>:<text>` is expected only on those versions' pages, and a version the check did not reach exits 2.
 
 Without a credential, a branch the release wave should have reached but this
