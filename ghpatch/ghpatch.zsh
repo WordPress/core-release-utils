@@ -66,5 +66,17 @@ function ghpatch() {
 		return 1;
 	fi
 
+	# Warn about binary files, the API omits the patch for these so they can't be applied.
+	local binary_files=$(gh api "repos/$repository/pulls/$pr_number/files" --paginate --jq '.[] | select(.patch == null and .status != "renamed") | .filename');
+	if [ -n "$binary_files" ]; then
+		echo "";
+		echo "⚠️⚠️⚠️⚠️⚠️⚠️"
+		echo "Binary files:";
+		echo "$binary_files" | sed 's/^/   - /';
+		echo "⚠️⚠️⚠️⚠️⚠️⚠️"
+		echo "⚠️⚠️  The above binary files are not included in the patch.  ⚠️⚠️"
+		echo "⚠️⚠️⚠️⚠️⚠️⚠️"
+	fi
+
 	return $patch_status;
 }
