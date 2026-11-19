@@ -24,7 +24,7 @@ A failure to remove the temporary worktree no longer stops the report. It prints
 
 ## In CI
 
-The `Release checks: Packages` workflow (`.github/workflows/package-checks.yml`) runs this tool and `verify-package-matches-source` on each `https://wordpress.org/wordpress-<version>.zip`, as two jobs per zip that run in parallel. Start it by hand with `versions`, a comma-separated list such as `7.1.5,7.0.6`. It refuses X.Y and X.Y.0 versions, because it does not pass `--previous`: test those locally. The `package-smoke` job uploads the report, its screenshots and the log as an artifact. Before a security release is announced, run both tools locally instead of this workflow: its job names and logs are public.
+The `Release checks: Packages` workflow (`.github/workflows/package-checks.yml`) runs this tool and `verify-package-matches-source` on each `https://wordpress.org/wordpress-<version>.zip`, as two jobs per zip that run in parallel. Dispatch it once after the SVN tags are created with `versions`, a comma-separated list such as `7.1.5,7.0.6`, and a `timeout` (default `3h`; `0` checks once). Each version starts testing as soon as its zip and published md5 agree. It refuses X.Y and X.Y.0 versions, because it does not pass `--previous`: test those locally. The `package-smoke` job uploads the report, its screenshots and the log as an artifact. Before a security release is announced, run both tools locally instead of this workflow: its job names and logs are public.
 
 ## How it works
 

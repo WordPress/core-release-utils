@@ -27,7 +27,7 @@ Shared PHP helpers that more than one tool uses live in `lib/lib.php`, with test
 
 Three GitHub Actions workflows run the release checks. The release lead starts each one by hand from the Actions tab, once per phase, with that phase's versions:
 
-- `Release checks: Packages`: after the zips are live. Runs `package-smoke` and `verify-package-matches-source` on each zip.
+- `Release checks: Packages`: after the SVN tags are created, with a timeout. Runs `package-smoke` and `verify-package-matches-source` on each zip as it lands. Before a security release is announced, see the caution in the `package-smoke` README.
 - `Release checks: Tags reached mirror`: after the SVN tags are created. Runs `verify-tags-reached-mirror --tags`.
 - `Release checks: Localized packages`: after auto-updates are on. Runs `verify-localized-packages`.
 
