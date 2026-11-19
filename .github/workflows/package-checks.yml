@@ -13,6 +13,22 @@ on:
         required: false
         type: string
         default: '3h'
+  workflow_call:
+    inputs:
+      versions:
+        description: 'Comma-separated versions, for example 7.1.5,7.0.6. X.Y and X.Y.0 are refused.'
+        required: true
+        type: string
+      timeout:
+        description: 'How long to wait for the packages. 0 checks once.'
+        required: false
+        type: string
+        default: '3h'
+      tooling-ref:
+        description: 'Branch, tag or SHA of WordPress/core-release-utils to run the tools from.'
+        required: false
+        type: string
+        default: 'trunk'
 
 permissions:
   contents: read
@@ -31,6 +47,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          repository: WordPress/core-release-utils
+          ref: ${{ inputs.tooling-ref || github.ref }}
           persist-credentials: false
       - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
@@ -56,6 +74,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          repository: WordPress/core-release-utils
+          ref: ${{ inputs.tooling-ref || github.ref }}
           persist-credentials: false
       - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
@@ -111,6 +131,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          repository: WordPress/core-release-utils
+          ref: ${{ inputs.tooling-ref || github.ref }}
           persist-credentials: false
       - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
